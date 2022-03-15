@@ -11,10 +11,15 @@ class Token:
         self.word = word
         self.pos = pos
 
+    def __str__(self):
+        return self.word
+
 
 class Sentence:
     def __init__(self, tokens: list = None):
         self.tokens = tokens
+        if tokens is None:
+            self.tokens = list()
 
     def add_token(self, token: Token):
         self.tokens.append(token)
@@ -30,9 +35,9 @@ class Corpus:
     token_delimiter = " "
 
     def __init__(self, sentences: list = None):
-        if sentences is None:
-            sentences = list()
         self.sentences = sentences
+        if sentences is None:
+            self.sentences = list()
         self.files = list()
 
     def add_xml_file_to_corpus(self, file_name: str):
@@ -63,15 +68,15 @@ class Corpus:
             return text.replace("-", " ")
 
         self.files.append(file_name)
-        text_file = open(file_name, "r")
+        text_file = open(file_name, "r", encoding="utf-8")
         text_file_content = preprocess(text_file.read())
 
         # Split to paragraphs
         for paragraph_id, curr_paragraph in enumerate(text_file_content.split(self.paragraph_delimiter)):
             if is_paragraph(curr_paragraph):
-                sentence = Sentence()
                 # Split to sentences
                 for sentence_id, curr_sentence in enumerate(curr_paragraph.split(self.sentence_delimiter)):
+                    sentence = Sentence()
                     # Split to tokens
                     for token_id, curr_token in enumerate(curr_sentence.split(self.token_delimiter)):
                         token = Token(token_id, sentence_id, "", curr_token, "")
@@ -88,7 +93,7 @@ class Corpus:
         file = open(file_name, "wb")
         for sentence in self.sentences:
             tokens_strings = list()
-            for token in sentence.tokens():
+            for token in sentence.tokens:
                 tokens_strings.append(str(token))
             file.write((" ".join(tokens_strings) + self.paragraph_delimiter).encode())
         file.close()
@@ -119,9 +124,9 @@ def main():
 
     corpus = Corpus()
     for xml_file in listdir(xml_dir):
-        corpus.add_xml_file_to_corpus(xml_file)
+        corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
     for text_file in listdir(wiki_dir):
-        corpus.add_text_file_to_corpus(text_file)
+        corpus.add_text_file_to_corpus(path.join(wiki_dir, text_file))
 
     corpus.create_text_file(output_file)
 
