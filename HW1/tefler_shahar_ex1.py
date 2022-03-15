@@ -12,14 +12,14 @@ class Token:
 
 
 class Sentence:
-    def __init__(self, tokens: list=None):
+    def __init__(self, tokens: list = None):
         self.tokens = tokens
 
     def add_token(self, token: Token):
         self.tokens.append(token)
 
     def get_token(self, token_id: int):
-        return filter(lambda token:token.token_id == token_id, self.tokens)
+        return filter(lambda token: token.token_id == token_id, self.tokens)
 
 
 class Corpus:
@@ -42,8 +42,6 @@ class Corpus:
         self.files.append(file_name)
 
         # Start parsing XML file
-
-
 
     def add_text_file_to_corpus(self, file_name: str):
         """
@@ -77,28 +75,38 @@ class Corpus:
                         sentence.add_token(token)
                     self.sentences.append(sentence)
 
-
     def create_text_file(self, file_name: str):
         """
         This method will write the content of the corpus in the manner explained in the exercise instructions.
         :param file_name: The name of the file that the text will be written on
         :return: None
         """
-        return
+
+        file = open(file_name, "wb")
+        for sentence in self.sentences:
+            tokens_strings = list()
+            for token in sentence.tokens():
+                tokens_strings.append(str(token))
+            file.write((" ".join(tokens_strings) + self.paragraph_delimiter).encode())
+        file.close()
+
 
 class File:
     def __init__(self, file_name: str):
         self.file_name = file_name
 
+
 class XML_File(File):
     def parse_file(self):
         pass
+
 
 class TextFile(File):
     def parse_file(self):
         pass
 
     def unparse_file(self):
+        pass
 
 
 if __name__ == '__main__':
