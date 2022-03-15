@@ -1,5 +1,6 @@
 from sys import argv
 from os import path
+from os import listdir
 
 
 class Token:
@@ -28,7 +29,9 @@ class Corpus:
     sentence_delimiter = "."
     token_delimiter = " "
 
-    def __init__(self, sentences: list):
+    def __init__(self, sentences: list = None):
+        if sentences is None:
+            sentences = list()
         self.sentences = sentences
         self.files = list()
 
@@ -109,10 +112,22 @@ class TextFile(File):
         pass
 
 
-if __name__ == '__main__':
+def main():
     xml_dir = argv[1]  # directory containing xml files from the BNC corpus (not a zip file)
     wiki_dir = argv[2]  # directory containing text files from Wikipedia (not a zip file)
     output_file = argv[3]
+
+    corpus = Corpus()
+    for xml_file in listdir(xml_dir):
+        corpus.add_xml_file_to_corpus(xml_file)
+    for text_file in listdir(wiki_dir):
+        corpus.add_text_file_to_corpus(text_file)
+
+    corpus.create_text_file(output_file)
+
+
+if __name__ == '__main__':
+    main()
 
     # Implement your program here after implementing the classes and their methods above.
     # Your program should do the following (using the methods that need to be implemented):
