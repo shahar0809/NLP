@@ -38,7 +38,7 @@ class Sentence:
 
 class Corpus:
     sentence_split_delimiters = ["?", "!", ";", ":", "-"]
-    abbreviations = ["U.S.", "M.A", ]
+    abbreviations = ["U.S", "M.A"]
 
     paragraph_delimiter = "\n"
     sentence_delimiter = "."
@@ -94,7 +94,7 @@ class Corpus:
             if not self.is_empty(curr_paragraph):
                 # Looping over all sentences in paragraph
                 for curr_sentence in self.split_to_sentences(curr_paragraph):
-                    sentence = Sentence()
+                    sentence = Sentence(is_title=self.title_delimiter in curr_sentence)
 
                     # Looping over all tokens in sentence
                     for curr_token in curr_sentence.split(self.token_delimiter):
@@ -129,11 +129,18 @@ class Corpus:
         return text
 
     def split_to_sentences(self, content):
-        for appearance in re.finditer(". ", content):
-            print(appearance)
-
         regex_pattern = '|'.join(map(re.escape, self.sentence_split_delimiters))
-        return re.split(regex_pattern, content)
+        last_end = 0
+        sentences = list()
+        for appearance in re.finditer(r"\. ", content):
+            curr_str = content[last_end: appearance.start()]
+            is_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
+
+            if all(is_abbreviation):
+                sentences.extend(re.split(regex_pattern, curr_str))
+                last_end = appearance.end()
+
+        return sentences
 
     def split_to_tokens(self, content):
         pass
@@ -153,8 +160,8 @@ def main():
     output_file = argv[3]
 
     corpus = Corpus()
-    for xml_file in listdir(xml_dir):
-        corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
+    # for xml_file in listdir(xml_dir):
+    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
     for text_file in listdir(wiki_dir):
         corpus.add_text_file_to_corpus(path.join(wiki_dir, text_file))
 
