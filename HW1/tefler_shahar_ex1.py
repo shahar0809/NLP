@@ -4,19 +4,21 @@ from os import listdir
 
 
 class Token:
-    def __init__(self, token_id, sentence_id: int, c5: str, word: str, pos: str):
+    def __init__(self, token_id, sentence_id: int, word: str, is_title, c5: str = "", pos: str = ""):
         self.token_id = token_id
         self.sentence_id = sentence_id
         self.c5 = c5
         self.word = word
         self.pos = pos
+        self.is_title = is_title
 
     def __str__(self):
         return self.word
 
 
 class Sentence:
-    def __init__(self, tokens: list = None):
+    def __init__(self, is_title=False, tokens: list = None):
+        self.is_title = is_title
         self.tokens = tokens
         if tokens is None:
             self.tokens = list()
@@ -59,28 +61,20 @@ class Corpus:
         :return: None
         """
 
-        def is_paragraph(paragraph: str):
-            return "==" not in paragraph != "\n"
-
-        def preprocess(text: str):
-            for symbol in self.symbols:
-                text = text.replace(symbol, "")
-            return text.replace("-", " ")
-
         self.files.append(file_name)
         text_file = open(file_name, "r", encoding="utf-8")
-        text_file_content = preprocess(text_file.read())
+        text_file_content = self.preprocess(text_file.read())
 
-        # Split to paragraphs
+        # Looping over all paragraphs
         for paragraph_id, curr_paragraph in enumerate(text_file_content.split(self.paragraph_delimiter)):
-            if is_paragraph(curr_paragraph):
-                # Split to sentences
+            if not self.is_empty(curr_paragraph):
+                # Looping over all sentences in paragraph
                 for sentence_id, curr_sentence in enumerate(curr_paragraph.split(self.sentence_delimiter)):
                     sentence = Sentence()
-                    # Split to tokens
+
+                    # Looping over all tokens in sentence
                     for token_id, curr_token in enumerate(curr_sentence.split(self.token_delimiter)):
-                        token = Token(token_id, sentence_id, "", curr_token, "")
-                        sentence.add_token(token)
+                        sentence.add_token(Token(token_id, sentence_id, curr_token, self.is_title(curr_sentence)))
                     self.sentences.append(sentence)
 
     def create_text_file(self, file_name: str):
@@ -97,6 +91,19 @@ class Corpus:
                 tokens_strings.append(str(token))
             file.write((" ".join(tokens_strings) + self.paragraph_delimiter).encode())
         file.close()
+
+    def preprocess(self, text: str):
+        for symbol in self.symbols:
+            text = text.replace(symbol, "")
+        return text.replace("-", " ")
+
+    @staticmethod
+    def is_title(paragraph: str):
+        return "==" in paragraph
+
+    @staticmethod
+    def is_empty(content: str):
+        return content == "\n" or content == ""
 
 
 class File:
