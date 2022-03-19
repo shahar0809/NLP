@@ -23,7 +23,8 @@ class Token:
 
 
 class Sentence:
-    def __init__(self, is_title=False, tokens: list = None):
+    def __init__(self, sentence_id: str, is_title=False, tokens: list = None):
+        self.sentence_id = sentence_id
         self.is_title = is_title
         self.tokens = tokens
         if tokens is None:
@@ -38,7 +39,7 @@ class Sentence:
 
 class Corpus:
     sentence_split_delimiters = ["?", "!", ";", ":", "-"]
-    abbreviations = ["U.S.", "M.A.", "v."]
+    abbreviations = ["U.S.", "M.A.", "v.", ".com"]
 
     paragraph_delimiter = "\n"
     sentence_delimiter = "."
@@ -64,7 +65,7 @@ class Corpus:
 
         sentences = xml_file.findAll("s", recursive=True)
         for sentence in sentences:
-            curr_sentence = Sentence()
+            curr_sentence = Sentence(sentence["n"])
             for word in sentence.findAll(["w", "c"], recursive=True):
                 if word.name == "c":
                     curr_sentence.add_token(
@@ -93,9 +94,10 @@ class Corpus:
         for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
             if not self.is_empty(curr_paragraph):
                 # Looping over all sentences in paragraph
-                for curr_sentence in self.split_to_sentences(curr_paragraph):
+                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
                     if not self.is_empty(curr_sentence):
-                        sentence = Sentence(is_title=self.title_delimiter in curr_sentence)
+                        sentence = Sentence(sentence_id=str(sentence_id),
+                                            is_title=self.title_delimiter in curr_sentence)
 
                         # Looping over all tokens in sentence
                         for curr_token in curr_sentence.split(self.token_delimiter):
