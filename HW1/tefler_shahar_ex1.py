@@ -7,16 +7,17 @@ from bs4 import BeautifulSoup
 
 
 class Token:
-    def __init__(self, token_id, sentence_id: int, word: str, is_title, c5: str = "", pos: str = ""):
-        self.token_id = token_id
-        self.sentence_id = sentence_id
+    def __init__(self, word: str, is_title: bool = False, is_multiword: bool = False, hw: str = "", c5: str = "",
+                 pos: str = ""):
         self.c5 = c5
         self.word = word
+        self.hw = hw
         self.pos = pos
         self.is_title = is_title
+        self.is_multiword = is_multiword
 
     def __str__(self):
-        return self.word
+        return self.word.replace(" ", "")
 
 
 class Sentence:
@@ -60,10 +61,20 @@ class Corpus:
         text_file = BeautifulSoup(text_file, "xml")
 
         sentences = text_file.findAll("s")
-        for sent_id, sentence in enumerate(sentences):
+        for sentence in sentences:
             curr_sentence = Sentence()
-            for word_id, word in enumerate(sentence.findChildren("w")):
-                curr_sentence.add_token(Token(word_id, sent_id, word["hw"], None, word["c5"], word["pos"]))
+            for word in sentence.contents:
+                # Tokenizing regular words
+                if word.name == "w":
+                    curr_sentence.add_token(
+                        Token(word.text, is_multiword=False, hw=word["hw"], c5=word["c5"], pos=word["pos"]))
+                # Tokenizing multi-words that contain list of words
+                elif word.name == "mw":
+                    for multi_word in word.findChildren("w"):
+                        curr_sentence.add_token(
+                            Token(multi_word.text, is_multiword=True, hw=multi_word["hw"], c5=multi_word["c5"],
+                                  pos=multi_word["pos"]))
+
             self.sentences.append(curr_sentence)
 
     def add_text_file_to_corpus(self, file_name: str):
@@ -79,17 +90,17 @@ class Corpus:
         text_file_content = self.preprocess(text_file.read())
 
         # Looping over all paragraphs
-        for paragraph_id, curr_paragraph in enumerate(text_file_content.split(self.paragraph_delimiter)):
+        for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
             if not self.is_empty(curr_paragraph):
                 # Looping over all sentences in paragraph
-                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
+                for curr_sentence in self.split_to_sentences(curr_paragraph):
                     sentence = Sentence()
 
                     # Looping over all tokens in sentence
-                    for token_id, curr_token in enumerate(curr_sentence.split(self.token_delimiter)):
+                    for curr_token in curr_sentence.split(self.token_delimiter):
                         curr_token = curr_token.replace(self.title_delimiter, "")
                         if not self.is_empty(curr_token):
-                            sentence.add_token(Token(token_id, sentence_id, curr_token, self.is_title(curr_sentence)))
+                            sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
                     self.sentences.append(sentence)
 
     def create_text_file(self, file_name: str):
@@ -133,21 +144,6 @@ class Corpus:
         return content == "\n" or content == ""
 
 
-class File:
-    def __init__(self, file_name: str):
-        self.file_name = file_name
-
-
-class XML_File(File):
-    def parse_file(self):
-        pass
-
-
-class TextFile(File):
-    def parse_file(self):
-        pass
-
-
 def main():
     xml_dir = argv[1]  # directory containing xml files from the BNC corpus (not a zip file)
     wiki_dir = argv[2]  # directory containing text files from Wikipedia (not a zip file)
@@ -164,10 +160,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-    # Implement your program here after implementing the classes and their methods above.
-    # Your program should do the following (using the methods that need to be implemented):
-    # 1. Create a corpus object (after implementing it).
-    # 2. Read the XML files from the XML directory to the corpus.
-    # 3. Read the text files from the Wikipedia directory to the corpus.
-    # 4. Write the content of the whole corpus to the output file.
