@@ -33,12 +33,9 @@ class Sentence:
     def add_token(self, token: Token):
         self.tokens.append(token)
 
-    def get_token(self, token_id: int):
-        return filter(lambda token: token.token_id == token_id, self.tokens)
-
 
 class Corpus:
-    sentence_split_delimiters = ["?", "!", ";", ":", "-"]
+    sentence_split_delimiters = ["?", "!", ";", ":", "-", "'", '"', ")", "(", "’", "‘"]
     abbreviations = ["U.S.", "M.A.", "v.", ".com"]
 
     paragraph_delimiter = "\n"
@@ -124,10 +121,6 @@ class Corpus:
             file.write(output.encode())
         file.close()
 
-    @staticmethod
-    def preprocess(text: str):
-        pass
-
     def split_to_sentences(self, content):
         """
         Splits a segment of text into sentences, while considering abbreviations from a pre-defined list.
@@ -154,15 +147,22 @@ class Corpus:
 
         return sentences
 
-    def split_to_tokens(self, content):
-        pass
-
     @staticmethod
     def is_title(paragraph: str):
-        return "==" in paragraph
+        """
+        Checks if a string is a title in text documents.
+        :param paragraph: the input
+        :return: if it contains '=' character
+        """
+        return "=" in paragraph
 
     @staticmethod
     def is_empty(content: str):
+        """
+        Checks if a string is empty or contains only new lines.
+        :param content: string
+        :return: True if it's empty, false otherwise
+        """
         return re.compile("[\\n\\r]+").match(content) or content == ""
 
 
