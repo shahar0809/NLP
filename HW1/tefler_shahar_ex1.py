@@ -2,6 +2,8 @@ from sys import argv
 from os import path
 from os import listdir
 
+import re
+
 
 class Token:
     def __init__(self, token_id, sentence_id: int, word: str, is_title, c5: str = "", pos: str = ""):
@@ -31,10 +33,13 @@ class Sentence:
 
 
 class Corpus:
-    symbols = [",", ":", "(", ")"]
+    sentence_split_delimiters = ["?", "!", ".", ";", ":", "-"]
+    abbreviations = ["U.S.", "M.A", ]
+
     paragraph_delimiter = "\n"
     sentence_delimiter = "."
     token_delimiter = " "
+    title_delimiter = "===="
 
     def __init__(self, sentences: list = None):
         self.sentences = sentences
@@ -69,12 +74,14 @@ class Corpus:
         for paragraph_id, curr_paragraph in enumerate(text_file_content.split(self.paragraph_delimiter)):
             if not self.is_empty(curr_paragraph):
                 # Looping over all sentences in paragraph
-                for sentence_id, curr_sentence in enumerate(curr_paragraph.split(self.sentence_delimiter)):
+                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
                     sentence = Sentence()
 
                     # Looping over all tokens in sentence
                     for token_id, curr_token in enumerate(curr_sentence.split(self.token_delimiter)):
-                        sentence.add_token(Token(token_id, sentence_id, curr_token, self.is_title(curr_sentence)))
+                        curr_token = curr_token.replace(self.title_delimiter, "")
+                        if not self.is_empty(curr_token):
+                            sentence.add_token(Token(token_id, sentence_id, curr_token, self.is_title(curr_sentence)))
                     self.sentences.append(sentence)
 
     def create_text_file(self, file_name: str):
@@ -89,13 +96,25 @@ class Corpus:
             tokens_strings = list()
             for token in sentence.tokens:
                 tokens_strings.append(str(token))
-            file.write((" ".join(tokens_strings) + self.paragraph_delimiter).encode())
+            output = " ".join(tokens_strings) + self.paragraph_delimiter
+            if sentence.is_title:
+                output = ":title: " + output
+            file.write(output.encode())
         file.close()
 
-    def preprocess(self, text: str):
-        for symbol in self.symbols:
+    @staticmethod
+    def preprocess(text: str):
+        symbols = ["-", "(", ")", '"', ","]
+        for symbol in symbols:
             text = text.replace(symbol, "")
-        return text.replace("-", " ")
+        return text
+
+    def split_to_sentences(self, content):
+        regex_pattern = '|'.join(map(re.escape, self.sentence_split_delimiters))
+        return re.split(regex_pattern, content)
+
+    def split_to_tokens(self, content):
+        pass
 
     @staticmethod
     def is_title(paragraph: str):
@@ -118,9 +137,6 @@ class XML_File(File):
 
 class TextFile(File):
     def parse_file(self):
-        pass
-
-    def unparse_file(self):
         pass
 
 
