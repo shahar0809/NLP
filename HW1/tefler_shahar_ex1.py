@@ -38,7 +38,7 @@ class Sentence:
 
 class Corpus:
     sentence_split_delimiters = ["?", "!", ";", ":", "-"]
-    abbreviations = ["U.S", "M.A"]
+    abbreviations = ["U.S.", "M.A.", "v."]
 
     paragraph_delimiter = "\n"
     sentence_delimiter = "."
@@ -87,21 +87,22 @@ class Corpus:
 
         self.files.append(file_name)
         text_file = open(file_name, "r", encoding="utf-8")
-        text_file_content = self.preprocess(text_file.read())
+        text_file_content = text_file.read()
 
         # Looping over all paragraphs
         for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
             if not self.is_empty(curr_paragraph):
                 # Looping over all sentences in paragraph
                 for curr_sentence in self.split_to_sentences(curr_paragraph):
-                    sentence = Sentence(is_title=self.title_delimiter in curr_sentence)
+                    if not self.is_empty(curr_sentence):
+                        sentence = Sentence(is_title=self.title_delimiter in curr_sentence)
 
-                    # Looping over all tokens in sentence
-                    for curr_token in curr_sentence.split(self.token_delimiter):
-                        curr_token = curr_token.replace(self.title_delimiter, "")
-                        if not self.is_empty(curr_token):
-                            sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
-                    self.sentences.append(sentence)
+                        # Looping over all tokens in sentence
+                        for curr_token in curr_sentence.split(self.token_delimiter):
+                            curr_token = curr_token.replace(self.title_delimiter, "")
+                            if not self.is_empty(curr_token):
+                                sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
+                        self.sentences.append(sentence)
 
     def create_text_file(self, file_name: str):
         """
@@ -123,20 +124,29 @@ class Corpus:
 
     @staticmethod
     def preprocess(text: str):
-        symbols = ["-", "(", ")", '"', ","]
-        for symbol in symbols:
-            text = text.replace(symbol, "")
-        return text
+        pass
 
     def split_to_sentences(self, content):
-        regex_pattern = '|'.join(map(re.escape, self.sentence_split_delimiters))
-        last_end = 0
-        sentences = list()
-        for appearance in re.finditer(r"\. ", content):
-            curr_str = content[last_end: appearance.start()]
-            is_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
+        """
+        Splits a segment of text into sentences, while considering abbreviations from a pre-defined list.
+        :param content: The text segment
+        :return: list of sentences
+        """
 
-            if all(is_abbreviation):
+        regex_pattern = "(" + ''.join(
+            map(re.escape, self.sentence_split_delimiters)) + ")"  # regex pattern to match all delimiters from list
+        last_end = 0  # last index of the previous dot
+        sentences = list()  # list of sentences
+
+        # Loop over all appearances of dot (with whitespace)
+        for appearance in re.finditer(r"\. ", content):
+            curr_str = content[last_end: appearance.start() + 1]
+
+            # Checks if the dot appearance is not any abbreviation
+            is_not_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
+
+            # Add current interval only if it does not end with abbreviation
+            if all(is_not_abbreviation):
                 sentences.extend(re.split(regex_pattern, curr_str))
                 last_end = appearance.end()
 
@@ -151,7 +161,7 @@ class Corpus:
 
     @staticmethod
     def is_empty(content: str):
-        return content == "\n" or content == ""
+        return re.compile("[\\n\\r]+").match(content) or content == ""
 
 
 def main():
@@ -160,8 +170,8 @@ def main():
     output_file = argv[3]
 
     corpus = Corpus()
-    # for xml_file in listdir(xml_dir):
-    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
+    for xml_file in listdir(xml_dir):
+        corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
     for text_file in listdir(wiki_dir):
         corpus.add_text_file_to_corpus(path.join(wiki_dir, text_file))
 
