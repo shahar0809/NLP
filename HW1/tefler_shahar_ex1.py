@@ -3,6 +3,7 @@ from os import path
 from os import listdir
 
 import re
+from bs4 import BeautifulSoup
 
 
 class Token:
@@ -55,8 +56,15 @@ class Corpus:
         :return: None
         """
         self.files.append(file_name)
+        text_file = open(file_name, "r", encoding="utf-8")
+        text_file = BeautifulSoup(text_file, "xml")
 
-        # Start parsing XML file
+        sentences = text_file.findAll("s")
+        for sent_id, sentence in enumerate(sentences):
+            curr_sentence = Sentence()
+            for word_id, word in enumerate(sentence.findChildren("w")):
+                curr_sentence.add_token(Token(word_id, sent_id, word["hw"], None, word["c5"], word["pos"]))
+            self.sentences.append(curr_sentence)
 
     def add_text_file_to_corpus(self, file_name: str):
         """
