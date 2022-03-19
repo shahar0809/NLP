@@ -7,7 +7,8 @@ from bs4 import BeautifulSoup
 
 
 class Token:
-    def __init__(self, word: str, is_title: bool = False, is_multiword: bool = False, hw: str = "", c5: str = "",
+    def __init__(self, word: str = "", is_punctuation: bool = False, is_title: bool = False, is_multiword: bool = False,
+                 hw: str = "", c5: str = "",
                  pos: str = ""):
         self.c5 = c5
         self.word = word
@@ -15,6 +16,7 @@ class Token:
         self.pos = pos
         self.is_title = is_title
         self.is_multiword = is_multiword
+        self.is_punctuation = is_punctuation
 
     def __str__(self):
         return self.word.replace(" ", "")
@@ -35,13 +37,13 @@ class Sentence:
 
 
 class Corpus:
-    sentence_split_delimiters = ["?", "!", ".", ";", ":", "-"]
+    sentence_split_delimiters = ["?", "!", ";", ":", "-"]
     abbreviations = ["U.S.", "M.A", ]
 
     paragraph_delimiter = "\n"
     sentence_delimiter = "."
     token_delimiter = " "
-    title_delimiter = "===="
+    title_delimiter = "="
 
     def __init__(self, sentences: list = None):
         self.sentences = sentences
@@ -57,24 +59,22 @@ class Corpus:
         :return: None
         """
         self.files.append(file_name)
-        text_file = open(file_name, "r", encoding="utf-8")
-        text_file = BeautifulSoup(text_file, "xml")
+        xml_file = open(file_name, "r", encoding="utf-8")
+        xml_file = BeautifulSoup(xml_file, "xml")
 
-        sentences = text_file.findAll("s")
+        sentences = xml_file.findAll("s", recursive=True)
         for sentence in sentences:
             curr_sentence = Sentence()
-            for word in sentence.contents:
-                # Tokenizing regular words
-                if word.name == "w":
+            for word in sentence.findAll(["w", "c"], recursive=True):
+                if word.name == "c":
                     curr_sentence.add_token(
-                        Token(word.text, is_multiword=False, hw=word["hw"], c5=word["c5"], pos=word["pos"]))
-                # Tokenizing multi-words that contain list of words
-                elif word.name == "mw":
-                    for multi_word in word.findChildren("w"):
-                        curr_sentence.add_token(
-                            Token(multi_word.text, is_multiword=True, hw=multi_word["hw"], c5=multi_word["c5"],
-                                  pos=multi_word["pos"]))
-
+                        Token(word=word.text, is_punctuation=True, is_multiword=word.parent.name == "mw",
+                              c5=word["c5"]))
+                else:
+                    curr_sentence.add_token(
+                        Token(word=word.text, is_punctuation=False, is_multiword=word.parent.name == "mw",
+                              hw=word["hw"], c5=word["c5"],
+                              pos=word["pos"]))
             self.sentences.append(curr_sentence)
 
     def add_text_file_to_corpus(self, file_name: str):
@@ -129,6 +129,9 @@ class Corpus:
         return text
 
     def split_to_sentences(self, content):
+        for appearance in re.finditer(". ", content):
+            print(appearance)
+
         regex_pattern = '|'.join(map(re.escape, self.sentence_split_delimiters))
         return re.split(regex_pattern, content)
 
