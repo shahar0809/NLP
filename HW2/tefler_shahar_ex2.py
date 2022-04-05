@@ -1,6 +1,7 @@
 import math
 from sys import argv
 from os import path, listdir
+from math import log2
 from collections import Counter
 import re
 from bs4 import BeautifulSoup
@@ -195,18 +196,15 @@ class NGram:
 
 
 class NGramModel:
-    def __init__(self, n: int, corpus: Corpus, smoothing_type: str = str()):
+    def __init__(self, n: int, corpus: Corpus, smoothing_type: str = "Laplace"):
         self.n = n
-
-        if smoothing_type == "Laplace":
-            self.smoothing_type = self.laplace_smoothing
-        else:
-            self.smoothing_type = self.linear_interpolation_smoothing
-
+        self.smoothing_type = smoothing_type
         self.corpus = corpus
         self.n_grams = list()
-        self.ngram_counter = Counter()  # Counter for n-grams
-        self.context_counter = Counter()  # Counter for (n-1)-grams
+
+        self.ngram_counter = Counter()      # Counter for n-grams
+        self.context_counter = Counter()    # Counter for (n-1)-grams
+        self.vocabulary = Counter()      # Counter for single tokens
 
         self.build_ngram()
 
@@ -216,21 +214,25 @@ class NGramModel:
 
     def add_ngram(self, ngram: NGram):
         self.n_grams.append(ngram)
-        self.ngram_counter[ngram.__str__().lower().strip()] += 1
+        self.ngram_counter[ngram.__str__().strip()] += 1
 
     def add_context(self, context: list):
-        self.context_counter[self.concat_ngram(context).lower().strip()] += 1
+        self.context_counter[self.concat_ngram(context).strip()] += 1
 
     def build_ngram(self):
         for sentence in self.corpus.sentences:
+            # Add each token to token counter
+            for token in sentence.tokens:
+                self.vocabulary[token.word.strip()] += 1
+
             # Check if we can add sentence to ngrams
             if len(sentence.tokens) >= self.n:
                 # Looping over all possible ngrams and their contexts
                 for token_index in range(len(sentence.tokens) - self.n + 1):
                     curr_ngram = sentence.tokens[token_index: token_index + self.n]
-
                     self.add_ngram(NGram(curr_ngram))
                     self.add_context(curr_ngram[:-1])
+
                 self.add_context(sentence.tokens[len(sentence.tokens) - self.n + 1:len(
                     sentence.tokens)])  # Last context (not included in loop)
 
@@ -258,7 +260,10 @@ class NGramModel:
         :param phrases: previous n-gram
         :return: probability as mentioned
         """
-        return self.get_count(phrases + [token]) / self.get_count(phrases)
+        if self.smoothing_type == "Laplace":
+            return (self.get_count(phrases + [token]) + 1) / (self.get_count(phrases) + len(self.vocabulary))
+        elif self.smoothing_type == "Linear interpolation":
+            pass
 
     def get_count(self, phrases: list):
         """
@@ -273,23 +278,12 @@ class NGramModel:
         else:
             raise Exception("Invalid length at ngram")
 
-    def laplace_smoothing(self):
-        pass
 
     def linear_interpolation_smoothing(self):
         pass
 
 
-if __name__ == '__main__':
-    xml_dir = argv[1]  # directory containing xml files from the BNC corpus, full path
-    output_file = argv[2]  # output file name, full path
-
-    corpus = Corpus()
-    # for xml_file in listdir(xml_dir):
-    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
-
-    corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
-
+def part1(corpus: Corpus):
     unigram = NGramModel(1, corpus, smoothing_type="Laplace")
     bigram = NGramModel(2, corpus, smoothing_type="Laplace")
     trigram = NGramModel(3, corpus, smoothing_type="Laplace")
@@ -297,7 +291,7 @@ if __name__ == '__main__':
     def print_model_stats(model: NGramModel, sentences: list):
         for sentence in sentences:
             print(sentence.__str__())
-            print("Probability: {}".format(math.log(unigram.get_phrase_probability(sentence))))
+            print("Probability: {}".format(log2(unigram.get_phrase_probability(sentence))))
 
     sentences = [Sentence.make_sentence("May the Force be with you.")]
     sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
@@ -314,4 +308,19 @@ if __name__ == '__main__':
 
     print("Trigrams Model\n")
     print_model_stats(trigram, sentences)
+
+
+if __name__ == '__main__':
+    xml_dir = argv[1]  # directory containing xml files from the BNC corpus, full path
+    output_file = argv[2]  # output file name, full path
+
+    corpus = Corpus()
+    # for xml_file in listdir(xml_dir):
+    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
+
+    corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
+
+    part1(corpus)
+
+
 
