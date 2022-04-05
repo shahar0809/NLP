@@ -1,6 +1,7 @@
-import re
 from sys import argv
-
+from os import path, listdir
+from collections import Counter
+import re
 from bs4 import BeautifulSoup
 
 
@@ -42,10 +43,15 @@ class Corpus:
     title_delimiter = "="
 
     def __init__(self, sentences: list = None):
+        self.tokens_counter = Counter()
         self.sentences = sentences
         if sentences is None:
             self.sentences = list()
         self.files = list()
+
+    def add_token(self, sentence: Sentence, token: Token):
+        sentence.add_token(token)
+        self.tokens_counter.update(token.word)
 
     def add_xml_file_to_corpus(self, file_name: str):
         """
@@ -63,14 +69,14 @@ class Corpus:
             curr_sentence = Sentence(sentence["n"])
             for word in sentence.findAll(["w", "c"], recursive=True):
                 if word.name == "c":
-                    curr_sentence.add_token(
-                        Token(word=word.text, is_punctuation=True, is_multiword=word.parent.name == "mw",
-                              c5=word["c5"]))
+                    self.add_token(curr_sentence,
+                                   Token(word=word.text, is_punctuation=True, is_multiword=word.parent.name == "mw",
+                                         c5=word["c5"]))
                 else:
-                    curr_sentence.add_token(
-                        Token(word=word.text, is_punctuation=False, is_multiword=word.parent.name == "mw",
-                              hw=word["hw"], c5=word["c5"],
-                              pos=word["pos"]))
+                    self.add_token(curr_sentence,
+                                   Token(word=word.text, is_punctuation=False, is_multiword=word.parent.name == "mw",
+                                         hw=word["hw"], c5=word["c5"],
+                                         pos=word["pos"]))
             self.sentences.append(curr_sentence)
 
     def add_text_file_to_corpus(self, file_name: str):
@@ -98,7 +104,7 @@ class Corpus:
                         for curr_token in curr_sentence.split(self.token_delimiter):
                             curr_token = curr_token.replace(self.title_delimiter, "")
                             if not self.is_empty(curr_token):
-                                sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
+                                self.add_token(sentence, Token(curr_token, self.is_title(curr_sentence), False))
                         self.sentences.append(sentence)
 
     def create_text_file(self, file_name: str):
@@ -181,6 +187,26 @@ class NGramModel:
         self.n = n
         self.smoothing_type = smoothing_type
         self.corpus = corpus
+        self.n_grams = list()
+        self.ngram_counter = Counter()
+
+        self.build_ngram()
+        print("done")
+
+    def add_ngram(self, ngram: list):
+        self.n_grams.append(ngram)
+
+        ngram_str = ''.join(token.word for token in ngram)
+        self.ngram_counter[ngram_str] += 1
+
+    def build_ngram(self):
+        for sentence in self.corpus.sentences:
+            if len(sentence.tokens) >= self.n:
+                for token_index in range(len(sentence.tokens) - self.n):
+                    curr_ngram = list()
+                    for ngram_index in range(self.n):
+                        curr_ngram.append(sentence.tokens[token_index + ngram_index])
+                    self.add_ngram(curr_ngram)
 
     def get_phrase_probability(self, phrase: Sentence):
         """
@@ -188,7 +214,6 @@ class NGramModel:
         :param phrase: A given phrase
         :return: Probability of phrase
         """
-
         product = 1
         for token_index in range(len(phrase.tokens)):
             product *= self.get_token_probability(phrase.tokens[token_index],
@@ -205,6 +230,14 @@ class NGramModel:
 if __name__ == '__main__':
     xml_dir = argv[1]  # directory containing xml files from the BNC corpus, full path
     output_file = argv[2]  # output file name, full path
+
+    corpus = Corpus()
+    # for xml_file in listdir(xml_dir):
+    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
+
+    corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
+
+    bigram = NGramModel(2, "d", corpus)
 
     # Implement here your program:
     # 1. Create a corpus from the file in the given directory.
