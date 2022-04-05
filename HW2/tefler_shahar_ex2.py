@@ -1,3 +1,4 @@
+import math
 from sys import argv
 from os import path, listdir
 from collections import Counter
@@ -22,7 +23,7 @@ class Token:
 
 
 class Sentence:
-    def __init__(self, sentence_id: str, is_title=False, tokens: list = None):
+    def __init__(self, sentence_id: str = 0, is_title=False, tokens: list = None):
         self.sentence_id = sentence_id
         self.is_title = is_title
         self.tokens = tokens
@@ -31,6 +32,10 @@ class Sentence:
 
     def add_token(self, token: Token):
         self.tokens.append(token)
+
+    @staticmethod
+    def make_sentence(words: str):
+        return Sentence(tokens=[Token(word=word) for word in re.split(r"([,.])", words)])
 
 
 class Corpus:
@@ -204,11 +209,10 @@ class NGramModel:
         self.context_counter = Counter()  # Counter for (n-1)-grams
 
         self.build_ngram()
-        print("done")
 
     @staticmethod
     def concat_ngram(ngram: list):
-        return NGram(ngram).__str__()
+        return ''.join(token.word for token in ngram)
 
     def add_ngram(self, ngram: NGram):
         self.n_grams.append(ngram)
@@ -286,11 +290,28 @@ if __name__ == '__main__':
 
     corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
 
+    unigram = NGramModel(1, corpus, smoothing_type="Laplace")
     bigram = NGramModel(2, corpus, smoothing_type="Laplace")
-    print(bigram.get_phrase_probability(corpus.sentences[100]))
+    trigram = NGramModel(3, corpus, smoothing_type="Laplace")
 
-    # Implement here your program:
-    # 1. Create a corpus from the file in the given directory.
-    # 2. Create a language model based on the corpus.
-    # 3. Calculate and print onto the output file the first task, in the wanted format.
-    # 4. Print onto the output file the results from the second task in the wanted format.
+    def print_model_stats(model: NGramModel, sentences: list):
+        for sentence in sentences:
+            print(sentence.__str__())
+            print("Probability: {}".format(math.log(unigram.get_phrase_probability(sentence))))
+
+    sentences = [Sentence.make_sentence("May the Force be with you.")]
+    sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
+    sentences += [Sentence.make_sentence("Ogres are like onions.")]
+    sentences += [Sentence.make_sentence("You’re tearing me apart, Lisa!")]
+    sentences += [Sentence.make_sentence("I live my life one quarter at a time.")]
+
+    print("*** Sentence Predictions ***\n")
+    print("Unigrams Model\n")
+    print_model_stats(unigram, sentences)
+
+    print("Bigrams Model\n")
+    print_model_stats(bigram, sentences)
+
+    print("Trigrams Model\n")
+    print_model_stats(trigram, sentences)
+
