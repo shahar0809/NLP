@@ -178,35 +178,61 @@ class Corpus:
         return counter
 
 
-# Implement an n-gram language model class, that will be built using a corpus of type "Corpus" (thus, you will need to
-# connect it in any way you want to the "Corpus" class):
+class NGram:
+    def __init__(self, tokens: list):
+        self.prev_tokens = tokens[:len(tokens) - 1]
+        self.token = tokens[-1]
+
+        self.ngram = ''.join(token.word for token in tokens)
+
+    def __str__(self):
+        return self.ngram
 
 
 class NGramModel:
-    def __init__(self, n: int, smoothing_type, corpus: Corpus):
+    def __init__(self, n: int, corpus: Corpus, smoothing_type: str = str()):
         self.n = n
-        self.smoothing_type = smoothing_type
+
+        if smoothing_type == "Laplace":
+            self.smoothing_type = self.laplace_smoothing
+        else:
+            self.smoothing_type = self.linear_interpolation_smoothing
+
         self.corpus = corpus
         self.n_grams = list()
-        self.ngram_counter = Counter()
+        self.ngram_counter = Counter()  # Counter for n-grams
+        self.context_counter = Counter()  # Counter for (n-1)-grams
 
         self.build_ngram()
         print("done")
 
-    def add_ngram(self, ngram: list):
-        self.n_grams.append(ngram)
+    @staticmethod
+    def concat_ngram(ngram: list):
+        return NGram(ngram).__str__()
 
-        ngram_str = ''.join(token.word for token in ngram)
-        self.ngram_counter[ngram_str] += 1
+    def add_ngram(self, ngram: NGram):
+        self.n_grams.append(ngram)
+        self.ngram_counter[ngram.__str__().lower().strip()] += 1
+
+    def add_context(self, context: list):
+        self.context_counter[self.concat_ngram(context).lower().strip()] += 1
 
     def build_ngram(self):
         for sentence in self.corpus.sentences:
+            # Check if we can add sentence to ngrams
             if len(sentence.tokens) >= self.n:
-                for token_index in range(len(sentence.tokens) - self.n):
-                    curr_ngram = list()
-                    for ngram_index in range(self.n):
-                        curr_ngram.append(sentence.tokens[token_index + ngram_index])
-                    self.add_ngram(curr_ngram)
+                # Looping over all possible ngrams and their contexts
+                for token_index in range(len(sentence.tokens) - self.n + 1):
+                    curr_ngram = sentence.tokens[token_index: token_index + self.n]
+
+                    self.add_ngram(NGram(curr_ngram))
+                    self.add_context(curr_ngram[:-1])
+                self.add_context(sentence.tokens[len(sentence.tokens) - self.n + 1:len(
+                    sentence.tokens)])  # Last context (not included in loop)
+
+            # Check if we can add sentence to context only
+            elif len(sentence.tokens) == self.n - 1:
+                self.add_context(sentence.tokens)
 
     def get_phrase_probability(self, phrase: Sentence):
         """
@@ -214,16 +240,39 @@ class NGramModel:
         :param phrase: A given phrase
         :return: Probability of phrase
         """
+
         product = 1
-        for token_index in range(len(phrase.tokens)):
+        for token_index in range(self.n - 1, len(phrase.tokens)):
             product *= self.get_token_probability(phrase.tokens[token_index],
-                                                  phrase.tokens[token_index - self.n + 1: token_index - 1])
+                                                  phrase.tokens[token_index - self.n + 1: token_index])
         return product
 
     def get_token_probability(self, token, phrases):
-        return self.corpus.get_count(phrases + [token]) / self.corpus.get_count(phrases)
+        """
+        Calculates the probability of a token given the previous tokens.
+        :param token: given token
+        :param phrases: previous n-gram
+        :return: probability as mentioned
+        """
+        return self.get_count(phrases + [token]) / self.get_count(phrases)
+
+    def get_count(self, phrases: list):
+        """
+        Calculates the count of appearances of a sequence of tokens in the NGram.
+        :param phrases: sequence of tokens
+        :return: count of appearances
+        """
+        if len(phrases) == self.n:
+            return self.ngram_counter[self.concat_ngram(phrases).lower().strip()]
+        elif len(phrases) == self.n - 1:
+            return self.context_counter[self.concat_ngram(phrases).lower().strip()]
+        else:
+            raise Exception("Invalid length at ngram")
 
     def laplace_smoothing(self):
+        pass
+
+    def linear_interpolation_smoothing(self):
         pass
 
 
@@ -237,7 +286,8 @@ if __name__ == '__main__':
 
     corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
 
-    bigram = NGramModel(2, "d", corpus)
+    bigram = NGramModel(2, corpus, smoothing_type="Laplace")
+    print(bigram.get_phrase_probability(corpus.sentences[100]))
 
     # Implement here your program:
     # 1. Create a corpus from the file in the given directory.
