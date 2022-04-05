@@ -1,4 +1,3 @@
-import math
 from sys import argv
 from os import path, listdir
 from math import log2
@@ -57,7 +56,7 @@ class Corpus:
 
     def add_token(self, sentence: Sentence, token: Token):
         sentence.add_token(token)
-        self.tokens_counter.update(token.word)
+        self.tokens_counter[token.word.lower()] += 1
 
     def add_xml_file_to_corpus(self, file_name: str):
         """
@@ -317,6 +316,5 @@ if __name__ == '__main__':
     corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
 
     part1(corpus)
-
 
 
