@@ -279,10 +279,6 @@ class NGramModel:
             raise Exception("Invalid length at ngram")
 
 
-    def linear_interpolation_smoothing(self):
-        pass
-
-
 def part1(corpus: Corpus):
     unigram = NGramModel(1, corpus, smoothing_type="Laplace")
     bigram = NGramModel(2, corpus, smoothing_type="Laplace")
