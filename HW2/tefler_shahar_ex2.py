@@ -1,10 +1,10 @@
+import re
 from sys import argv
 from os import path, listdir
 from math import log2
 from collections import Counter, deque
-import re
 from bs4 import BeautifulSoup
-from itertools import count
+from random import choices, uniform
 
 
 class Token:
@@ -41,6 +41,9 @@ class Sentence:
     def __str__(self):
         return ' '.join([token.word for token in self.tokens])
 
+    def __len__(self):
+        return len(self.tokens)
+
 
 class Corpus:
     sentence_split_delimiters = ["?", "!", ";", ":", "-", "'", '"', ")", "(", "’", "‘"]
@@ -57,6 +60,8 @@ class Corpus:
         if sentences is None:
             self.sentences = list()
         self.files = list()
+
+        self.max_sentence_length = 0
 
     def __len__(self):
         return sum(len(sentence.tokens) for sentence in self.sentences)
@@ -79,6 +84,7 @@ class Corpus:
         sentences = xml_file.findAll("s", recursive=True)
         for sentence in sentences:
             curr_sentence = Sentence(sentence["n"])
+            self.add_token(curr_sentence, Token("<b>"))
             for word in sentence.findAll(["w", "c"], recursive=True):
                 if word.name == "c":
                     self.add_token(curr_sentence,
@@ -89,7 +95,10 @@ class Corpus:
                                    Token(word=word.text, is_punctuation=False, is_multiword=word.parent.name == "mw",
                                          hw=word["hw"], c5=word["c5"],
                                          pos=word["pos"]))
+            self.add_token(curr_sentence, Token("<e>"))
             self.sentences.append(curr_sentence)
+
+        self.max_sentence_length = max(self.max_sentence_length, max(map(len, self.sentences)))
 
     def add_text_file_to_corpus(self, file_name: str):
         """
@@ -195,13 +204,13 @@ class NGram:
         self.prev_tokens = tokens[:len(tokens) - 1]
         self.token = tokens[-1]
 
-        self.ngram = ''.join(token.word for token in tokens)
+        self.ngram = ' '.join(token.word.strip() for token in tokens)
 
     def __str__(self):
         return self.ngram
 
 
-class LanguageModel:
+class NGramModel:
     def __init__(self, n: int, corpus: Corpus, smoothing_type: str = "Laplace"):
         if smoothing_type != "Laplace" and smoothing_type != "Linear interpolation":
             raise Exception("Invalid smoothing type")
@@ -262,11 +271,11 @@ class LanguageModel:
         elif self.smoothing_type == "Linear interpolation":
             return self.linear_interpolation(token, phrases)
 
-    def no_smoothing_probability(self, token, phrases):
+    def no_smoothing_probability(self, token: Token, phrases: list):
         try:
             return self.get_count(phrases + [token]) / self.get_count(phrases)
         except ZeroDivisionError:
-            return 0.5
+            return 0
 
     def linear_interpolation(self, token, phrases):
         raise NotImplementedError
@@ -286,7 +295,7 @@ class LanguageModel:
 
     @staticmethod
     def concat_ngram(ngram: list):
-        return ''.join(token.word for token in ngram)
+        return ' '.join(token.word.strip() for token in ngram)
 
     @staticmethod
     def n_wise(it, n: int):
@@ -302,11 +311,42 @@ class LanguageModel:
             weights.append(idx / divisor)
         return weights
 
+    def random_sentence_length(self):
+        return int(uniform(1, self.corpus.max_sentence_length))
 
-class UnigramModel(LanguageModel):
+    def generate_next_word(self, sentence: Sentence):
+        context = sentence.tokens[-(self.n - 1):]
+        population = list()
+        probabilities = list()
+
+        for token in self.vocabulary:
+            population.append(token)
+            probabilities.append(self.no_smoothing_probability(Token(word=token), context))
+
+        return Token(choices(population, probabilities)[0])
+
+    def generate_random_sentence(self):
+        sentence_length = self.random_sentence_length()
+        sentence = Sentence(tokens=[Token(word="<b>")])
+
+        for idx in range(sentence_length):
+            next_token = self.generate_next_word(sentence)
+            sentence.add_token(next_token)
+
+            if next_token.word == "<e>":
+                return sentence
+        return sentence
+
+
+class UnigramModel(NGramModel):
     def __init__(self, corpus: Corpus, smoothing_type: str):
         super().__init__(1, corpus, smoothing_type)
         self.ngrams = self.vocabulary
+
+        # Calculating frequencies dictionary
+        corpus_len = float(len(self.corpus))
+        self.population = list(self.ngrams.keys())
+        self.probabilities = list(map(lambda x: x / corpus_len, self.ngrams.values()))
 
     def get_token_probability(self, token, phrases):
         """
@@ -323,8 +363,11 @@ class UnigramModel(LanguageModel):
     def linear_interpolation(self, token, phrases):
         return self.get_token_probability(token, phrases)
 
+    def generate_next_word(self, sentence: Sentence):
+        return Token(choices(self.population, self.probabilities)[0])
 
-class BigramModel(LanguageModel):
+
+class BigramModel(NGramModel):
     def __init__(self, corpus: Corpus, smoothing_type: str):
         super().__init__(2, corpus, smoothing_type)
         self.unigram = UnigramModel(corpus, smoothing_type)
@@ -336,7 +379,7 @@ class BigramModel(LanguageModel):
                weights[1] * self.no_smoothing_probability(token, phrases[-1:])
 
 
-class TrigramModel(LanguageModel):
+class TrigramModel(NGramModel):
     def __init__(self, corpus: Corpus, smoothing_type: str):
         super().__init__(3, corpus, smoothing_type)
         self.unigram = UnigramModel(corpus, smoothing_type)
@@ -350,51 +393,18 @@ class TrigramModel(LanguageModel):
                weights[1] * self.bigram.no_smoothing_probability(token, phrases[-1:]) + \
                weights[2] * self.no_smoothing_probability(token, phrases[-2:])
 
+    def generate_random_sentence(self):
+        sentence_length = self.random_sentence_length()
+        sentence = Sentence(tokens=[Token(word="<b>")])
+        sentence.add_token(self.bigram.generate_next_word(sentence))
 
-class NGramModel(LanguageModel):
-    def __init__(self, n: int, corpus: Corpus, smoothing_type: str):
-        if n <= 3:
-            raise Exception("NGramModel is for n > 3")
+        for idx in range(sentence_length - 1):
+            next_token = self.generate_next_word(sentence)
+            sentence.add_token(next_token)
 
-        super().__init__(n, corpus, smoothing_type)
-
-        self.unigram = UnigramModel(corpus, smoothing_type)
-        self.bigram = BigramModel(corpus, smoothing_type)
-        self.trigram = TrigramModel(corpus, smoothing_type)
-
-    def linear_interpolation(self, token, phrases):
-        weights = self.calc_weights()
-        return weights[0] * self.unigram.get_token_probability(token, phrases) + \
-               weights[1] * self.bigram.get_token_probability(token, phrases) + \
-               weights[2] * self.trigram.get_token_probability(token, phrases)
-
-
-def part1(corpus: Corpus):
-    unigram = UnigramModel(corpus, smoothing_type="Laplace")
-    bigram = BigramModel(corpus, smoothing_type="Laplace")
-    trigram = TrigramModel(corpus, smoothing_type="Linear interpolation")
-
-    def print_model_stats(model: LanguageModel, sentences: list):
-        for sentence in sentences:
-            print(sentence.__str__())
-            print("Probability: {}".format(log2(model.get_phrase_probability(sentence))))
-            print("\n")
-
-    sentences = [Sentence.make_sentence("May the Force be with you.")]
-    sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
-    sentences += [Sentence.make_sentence("Ogres are like onions.")]
-    sentences += [Sentence.make_sentence("You’re tearing me apart, Lisa!")]
-    sentences += [Sentence.make_sentence("I live my life one quarter at a time.")]
-
-    print("*** Sentence Predictions ***\n")
-    print("Unigrams Model\n")
-    print_model_stats(unigram, sentences)
-
-    print("\nBigrams Model\n")
-    print_model_stats(bigram, sentences)
-
-    print("\nTrigrams Model\n")
-    print_model_stats(trigram, sentences)
+            if next_token.word == "<e>":
+                return sentence
+        return sentence
 
 
 if __name__ == '__main__':
@@ -402,9 +412,62 @@ if __name__ == '__main__':
     output_file = argv[2]  # output file name, full path
 
     corpus = Corpus()
-    for xml_file in listdir(xml_dir):
-        corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
+    # for xml_file in listdir(xml_dir):
+    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
 
-    # corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
+    corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
 
-    part1(corpus)
+    unigram = UnigramModel(corpus, smoothing_type="Laplace")
+    bigram = BigramModel(corpus, smoothing_type="Laplace")
+    trigram = TrigramModel(corpus, smoothing_type="Linear interpolation")
+
+    def part1():
+        def print_model_stats(model: NGramModel, sentences: list):
+            for sentence in sentences:
+                print(sentence.__str__())
+
+                try:
+                    print("Probability: {}".format(log2(model.get_phrase_probability(sentence))))
+                except ValueError:
+                    print("Probability: {}".format(0))
+
+                print("\n")
+
+        sentences = [Sentence.make_sentence("May the Force be with you.")]
+        sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
+        sentences += [Sentence.make_sentence("Ogres are like onions.")]
+        sentences += [Sentence.make_sentence("You’re tearing me apart, Lisa!")]
+        sentences += [Sentence.make_sentence("I live my life one quarter at a time.")]
+
+        print("*** Sentence Predictions ***\n")
+        print("Unigrams Model\n")
+        print_model_stats(unigram, sentences)
+
+        print("\nBigrams Model\n")
+        print_model_stats(bigram, sentences)
+
+        print("\nTrigrams Model\n")
+        print_model_stats(trigram, sentences)
+
+    def part2(num_of_sentences: int):
+        def print_model_stats(model: NGramModel):
+            for idx in range(num_of_sentences):
+                print(model.generate_random_sentence())
+
+        print("*** Random Sentence Generation ***\n")
+
+        print("Unigram Model:")
+        print_model_stats(unigram)
+        print("\n")
+
+        print("Bigram Model:")
+        print_model_stats(bigram)
+        print("\n")
+
+        print("Trigram Model:")
+        print_model_stats(trigram)
+        print("\n")
+
+
+    part1()
+    part2(5)
