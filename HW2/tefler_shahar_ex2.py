@@ -35,8 +35,8 @@ class Sentence:
         self.tokens.append(token)
 
     @staticmethod
-    def make_sentence(words: str):
-        return Sentence(tokens=[Token(word=word) for word in list(filter((" ").__ne__, re.split(r"([,.\s])", words)))])
+    def make_sentence(words: list):
+        return Sentence(tokens=[Token(word=word) for word in words])
 
     def __str__(self):
         return ' '.join([token.word for token in self.tokens])
@@ -253,10 +253,13 @@ class NGramModel:
         :return: Probability of phrase
         """
 
-        product = 1
+        product = 0
         for token_index in range(self.n - 1, len(phrase.tokens)):
-            product *= self.get_token_probability(phrase.tokens[token_index],
-                                                  phrase.tokens[token_index - self.n + 1: token_index])
+            try:
+                product += log2(self.get_token_probability(phrase.tokens[token_index],
+                                                           phrase.tokens[token_index - self.n + 1: token_index]))
+            except ValueError:
+                product += 0
         return product
 
     def get_token_probability(self, token, phrases):
@@ -412,62 +415,64 @@ if __name__ == '__main__':
     output_file = argv[2]  # output file name, full path
 
     corpus = Corpus()
-    # for xml_file in listdir(xml_dir):
-    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
-
-    corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
+    for xml_file in listdir(xml_dir):
+        corpus.add_xml_file_to_corpus(path.join(xml_dir, xml_file))
 
     unigram = UnigramModel(corpus, smoothing_type="Laplace")
     bigram = BigramModel(corpus, smoothing_type="Laplace")
     trigram = TrigramModel(corpus, smoothing_type="Linear interpolation")
 
+    file = open(output_file, "w", encoding='utf-8')
+
+
     def part1():
         def print_model_stats(model: NGramModel, sentences: list):
             for sentence in sentences:
-                print(sentence.__str__())
+                file.write(sentence.__str__())
+                file.write("\n")
+                file.write("Probability: {}".format(model.get_phrase_probability(sentence)))
+                file.write("\n\n")
 
-                try:
-                    print("Probability: {}".format(log2(model.get_phrase_probability(sentence))))
-                except ValueError:
-                    print("Probability: {}".format(0))
+        sentences = [Sentence.make_sentence(['May', 'the', 'Force', 'be', 'with', 'you'])]
+        sentences += [Sentence.make_sentence(
+            ['I', "’m", 'going', 'to', 'make', 'him', 'an', 'offer', 'he', 'ca', 'n’t', 'refuse', '.'])]
+        sentences += [Sentence.make_sentence(['Ogres', 'are', 'like', 'onions', '.'])]
+        sentences += [Sentence.make_sentence(['You', "’re", 'tearing', 'me', 'apart', 'Lisa', '!'])]
+        sentences += [Sentence.make_sentence(['I', 'live', 'my', 'life', 'one', 'quarter', 'at', 'a', 'time', '.'])]
 
-                print("\n")
-
-        sentences = [Sentence.make_sentence("May the Force be with you.")]
-        sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
-        sentences += [Sentence.make_sentence("Ogres are like onions.")]
-        sentences += [Sentence.make_sentence("You’re tearing me apart, Lisa!")]
-        sentences += [Sentence.make_sentence("I live my life one quarter at a time.")]
-
-        print("*** Sentence Predictions ***\n")
-        print("Unigrams Model\n")
+        file.write("*** Sentence Predictions ***\n\n")
+        file.write("Unigrams Model\n\n")
         print_model_stats(unigram, sentences)
 
-        print("\nBigrams Model\n")
+        file.write("\nBigrams Model\n\n")
         print_model_stats(bigram, sentences)
 
-        print("\nTrigrams Model\n")
+        file.write("\nTrigrams Model\n\n")
         print_model_stats(trigram, sentences)
+
 
     def part2(num_of_sentences: int):
         def print_model_stats(model: NGramModel):
             for idx in range(num_of_sentences):
-                print(model.generate_random_sentence())
+                file.write(model.generate_random_sentence().__str__())
+                file.write("\n")
 
-        print("*** Random Sentence Generation ***\n")
+        file.write("\n\n*** Random Sentence Generation ***\n\n")
 
-        print("Unigram Model:")
+        file.write("Unigram Model:\n\n")
         print_model_stats(unigram)
-        print("\n")
+        file.write("\n\n")
 
-        print("Bigram Model:")
+        file.write("Bigram Model:\n")
         print_model_stats(bigram)
-        print("\n")
+        file.write("\n\n")
 
-        print("Trigram Model:")
+        file.write("Trigram Model:\n")
         print_model_stats(trigram)
-        print("\n")
+        file.write("\n\n")
 
 
     part1()
     part2(5)
+
+    file.close()

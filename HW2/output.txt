@@ -1,0 +1,84 @@
+*** Sentence Predictions ***
+
+Unigrams Model
+
+May the Force be with you
+Probability: -55.13753000167004
+
+I ’m going to make him an offer he ca n’t refuse .
+Probability: -133.19023734548531
+
+Ogres are like onions .
+Probability: -48.417463932960686
+
+You ’re tearing me apart Lisa !
+Probability: -87.24321967428142
+
+I live my life one quarter at a time .
+Probability: -96.12644723060822
+
+
+Bigrams Model
+
+May the Force be with you
+Probability: -54.46742237641665
+
+I ’m going to make him an offer he ca n’t refuse .
+Probability: -127.3240702127296
+
+Ogres are like onions .
+Probability: -43.42952194209269
+
+You ’re tearing me apart Lisa !
+Probability: -65.10737068676187
+
+I live my life one quarter at a time .
+Probability: -96.7833561969625
+
+
+Trigrams Model
+
+May the Force be with you
+Probability: -26.96724637579839
+
+I ’m going to make him an offer he ca n’t refuse .
+Probability: -79.69528409742044
+
+Ogres are like onions .
+Probability: -16.20297631914094
+
+You ’re tearing me apart Lisa !
+Probability: -13.435930651703595
+
+I live my life one quarter at a time .
+Probability: -68.17151558754294
+
+
+
+*** Random Sentence Generation ***
+
+Unigram Model:
+
+<b> . <b> to weather OME Billy leftie <b> The than not in <e>
+<b> appraisal the dancers to notion comic trivial be consumerism Rudolf much the abstract and plot RSC breakfast double by 's though of Lawson study Desdemona ago well romantic Tony to serial
+<b> turban , parents leave <b> tipping Guyler and Born rhythms in stories , romantic a have are play a Curtis given moment answered convenient on Slava larger-than-life unholy , pervasive Grimes the 's ( dancers ‘ <e>
+<b> in at which does the is <e>
+<b> serious without ( wife unequivocal disillusioned not <e>
+
+
+Bigram Model:
+<b> Not a forceful classical allusion . <e>
+<b> In the ex-wife meets Slava . <e>
+<b> Not a strong forward pulse or diary ) Moor : a rainy afternoon . <e>
+<b> The phantom was his jumps coupled to carry a thriller by , pray , first romantic novel of a Russian souvenir shop is patently in Amsterdam , responded at one can be little more so long slow playing does . <e>
+<b> Television was both labyrinthine and touching study of Woman Now magazine ( LWT ) sensitively adapting to make one was devastating enough clues for an unholy jangle with an alternately
+
+
+Trigram Model:
+<b> Born to salty , honest East End folk — this was hinted at , the slight mismatch of scale between the size of performance and the Union Jack can be done . <e>
+<b> He probably intended it as an exact classical allusion . <e>
+<b> It probably was , as White demonstrates in a nobly paced resumption of dignity in the role by three months . <e>
+<b> But for all its individual strengths it does n't evolve a satisfying shape . <e>
+<b> The choreography remains a moment by moment response to the fortress . <e>
+
+
