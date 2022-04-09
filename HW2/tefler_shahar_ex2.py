@@ -1,7 +1,7 @@
 from sys import argv
 from os import path, listdir
 from math import log2
-from collections import Counter
+from collections import Counter, deque
 import re
 from bs4 import BeautifulSoup
 
@@ -37,6 +37,9 @@ class Sentence:
     def make_sentence(words: str):
         return Sentence(tokens=[Token(word=word) for word in re.split(r"([,.])", words)])
 
+    def __str__(self):
+        return ' '.join([token.word for token in self.tokens])
+
 
 class Corpus:
     sentence_split_delimiters = ["?", "!", ";", ":", "-", "'", '"', ")", "(", "’", "‘"]
@@ -53,6 +56,9 @@ class Corpus:
         if sentences is None:
             self.sentences = list()
         self.files = list()
+
+    def __len__(self):
+        return sum(len(sentence.tokens) for sentence in self.sentences)
 
     def add_token(self, sentence: Sentence, token: Token):
         sentence.add_token(token)
@@ -194,50 +200,66 @@ class NGram:
         return self.ngram
 
 
-class NGramModel:
+class LanguageModel:
     def __init__(self, n: int, corpus: Corpus, smoothing_type: str = "Laplace"):
         self.n = n
+
         self.smoothing_type = smoothing_type
         self.corpus = corpus
-        self.n_grams = list()
+        self.vocabulary = Counter()
 
-        self.ngram_counter = Counter()      # Counter for n-grams
-        self.context_counter = Counter()    # Counter for (n-1)-grams
-        self.vocabulary = Counter()      # Counter for single tokens
+        self.ngrams = Counter()  # Counter for n-grams
+        self.contexts = Counter()  # Counter for (n-1)-grams
 
-        self.build_ngram()
+        self.build_vocabulary()
 
-    @staticmethod
-    def concat_ngram(ngram: list):
-        return ''.join(token.word for token in ngram)
+    def build_vocabulary(self):
+        for sentence in self.corpus.sentences:
+            for token in sentence.tokens:
+                self.add_to_vocabulary(NGram([token]))
+
+    def add_to_vocabulary(self, ngram: NGram):
+        self.vocabulary[ngram.__str__().strip()] += 1
 
     def add_ngram(self, ngram: NGram):
-        self.n_grams.append(ngram)
-        self.ngram_counter[ngram.__str__().strip()] += 1
+        self.ngrams[ngram.__str__().strip()] += 1
 
     def add_context(self, context: list):
-        self.context_counter[self.concat_ngram(context).strip()] += 1
+        self.contexts[self.concat_ngram(context).strip()] += 1
 
-    def build_ngram(self):
+    def build_ngrams(self):
         for sentence in self.corpus.sentences:
-            # Add each token to token counter
-            for token in sentence.tokens:
-                self.vocabulary[token.word.strip()] += 1
+            for ngram in self.n_wise(sentence.tokens, self.n):
+                self.add_ngram(NGram(list(ngram)))
+            for context in self.n_wise(sentence.tokens, self.n - 1):
+                self.add_context(list(context))
 
-            # Check if we can add sentence to ngrams
-            if len(sentence.tokens) >= self.n:
-                # Looping over all possible ngrams and their contexts
-                for token_index in range(len(sentence.tokens) - self.n + 1):
-                    curr_ngram = sentence.tokens[token_index: token_index + self.n]
-                    self.add_ngram(NGram(curr_ngram))
-                    self.add_context(curr_ngram[:-1])
+        # for sentence in self.corpus.sentences:
+        #     # Add each token to token counter
+        #     for token in sentence.tokens:
+        #         self.vocabulary[token.word.strip()] += 1
+        #
+        #     # Check if we can add sentence to ngrams
+        #     if len(sentence.tokens) >= self.n:
+        #         # Looping over all possible ngrams and their contexts
+        #         for token_index in range(len(sentence.tokens) - self.n + 1):
+        #             curr_ngram = sentence.tokens[token_index: token_index + self.n]
+        #             self.add_ngram(NGram(curr_ngram))
+        #             self.add_context(curr_ngram[:-1])
+        #
+        #         self.add_context(sentence.tokens[len(sentence.tokens) - self.n + 1:len(
+        #             sentence.tokens)])  # Last context (not included in loop)
+        #
+        #     # Check if we can add sentence to context only
+        #     elif len(sentence.tokens) == self.n - 1:
+        #         self.add_context(sentence.tokens)
 
-                self.add_context(sentence.tokens[len(sentence.tokens) - self.n + 1:len(
-                    sentence.tokens)])  # Last context (not included in loop)
-
-            # Check if we can add sentence to context only
-            elif len(sentence.tokens) == self.n - 1:
-                self.add_context(sentence.tokens)
+    @staticmethod
+    def n_wise(it, n: int):
+        deq = deque((), n)
+        for x in it:
+            deq.append(x)
+            if len(deq) == n: yield deq
 
     def get_phrase_probability(self, phrase: Sentence):
         """
@@ -271,22 +293,67 @@ class NGramModel:
         :return: count of appearances
         """
         if len(phrases) == self.n:
-            return self.ngram_counter[self.concat_ngram(phrases).lower().strip()]
+            return self.ngrams[self.concat_ngram(phrases).strip()]
         elif len(phrases) == self.n - 1:
-            return self.context_counter[self.concat_ngram(phrases).lower().strip()]
+            return self.contexts[self.concat_ngram(phrases).strip()]
         else:
             raise Exception("Invalid length at ngram")
 
+    @staticmethod
+    def concat_ngram(ngram: list):
+        return ''.join(token.word for token in ngram)
+
+
+class UnigramModel(LanguageModel):
+    def __init__(self, corpus: Corpus, smoothing_type: str):
+        super().__init__(1, corpus, smoothing_type)
+        self.ngrams = self.vocabulary
+
+    def get_token_probability(self, token, phrases):
+        """
+        Calculates the probability of a token given the previous tokens.
+        :param token: given token
+        :param phrases: previous n-gram
+        :return: probability as mentioned
+        """
+        if self.smoothing_type == "Laplace":
+            return (self.get_count([token]) + 1) / (len(self.ngrams) + len(self.corpus))
+        elif self.smoothing_type == "Linear interpolation":
+            pass
+
+
+class BigramModel(LanguageModel):
+    def __init__(self, corpus: Corpus, smoothing_type: str):
+        super().__init__(2, corpus, smoothing_type)
+        self.build_ngrams()
+
+
+class TrigramModel(LanguageModel):
+    def __init__(self, corpus: Corpus, smoothing_type: str):
+        super().__init__(3, corpus, smoothing_type)
+        self.build_ngrams()
+
+
+class NGramModel(LanguageModel):
+    def __init__(self, n: int, corpus: Corpus, smoothing_type: str):
+        if n <= 3:
+            raise Exception("NGramModel is for n > 3")
+
+        super().__init__(n, corpus, smoothing_type)
+
+        self.bigram = BigramModel(corpus, smoothing_type)
+        self.trigram = TrigramModel(corpus, smoothing_type)
+
 
 def part1(corpus: Corpus):
-    unigram = NGramModel(1, corpus, smoothing_type="Laplace")
-    bigram = NGramModel(2, corpus, smoothing_type="Laplace")
-    trigram = NGramModel(3, corpus, smoothing_type="Laplace")
+    unigram = UnigramModel(corpus, smoothing_type="Laplace")
+    bigram = BigramModel(corpus, smoothing_type="Laplace")
+    trigram = TrigramModel(corpus, smoothing_type="Laplace")
 
-    def print_model_stats(model: NGramModel, sentences: list):
+    def print_model_stats(model: LanguageModel, sentences: list):
         for sentence in sentences:
             print(sentence.__str__())
-            print("Probability: {}".format(log2(unigram.get_phrase_probability(sentence))))
+            print("Probability: {}".format(log2(model.get_phrase_probability(sentence))))
 
     sentences = [Sentence.make_sentence("May the Force be with you.")]
     sentences += [Sentence.make_sentence("I’m going to make him an offer he can’t refuse.")]
@@ -316,5 +383,3 @@ if __name__ == '__main__':
     corpus.add_xml_file_to_corpus("XML_files/A1D.xml")
 
     part1(corpus)
-
-
