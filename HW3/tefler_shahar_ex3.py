@@ -5,12 +5,17 @@ from enum import Enum
 
 import re
 from bs4 import BeautifulSoup
+import gender_guesser.detector as gender
 
 
 class Gender(Enum):
-    FEMALE = 1
-    MALE = 2
-    UNKNOWN = 3
+    female = 1
+    male = 2
+    unknown = 3
+
+
+CHUNK_SIZE = 10
+gender_detector = gender.Detector()
 
 
 class Token:
@@ -30,17 +35,43 @@ class Token:
 
 
 class Sentence:
-    def __init__(self, sentence_id: str, author_name: str = "", is_title=False, tokens: list = None):
+    def __init__(self, sentence_id: str, authors: list, is_title=False, tokens: list = None):
         self.sentence_id = sentence_id
         self.is_title = is_title
         self.tokens = tokens
-        self.author_name = author_name
+        self.author_names = authors
+
+        # Defining gender of the sentence
+        authors_genders = list(map(gender_detector.get_gender, authors))
+        if len(set(authors_genders)) == 1:
+            self.gender = Gender(gender_detector.get_gender(authors_genders[0]))
+        else:
+            self.gender = Gender.unknown
 
         if tokens is None:
             self.tokens = list()
 
     def add_token(self, token: Token):
         self.tokens.append(token)
+
+
+class Chunk:
+    idx = 0
+
+    def __init__(self, sentences: list = None):
+        # Maintaining static index field for enumerating instances
+        self.idx = Chunk.idx
+        Chunk.idx += 1
+
+        if sentences is None:
+            self.sentences = list()
+        else:
+            self.sentences = sentences
+
+        self.gender = self.sentences[0].gender
+
+    def add_sentence(self, sentence: Sentence):
+        self.sentences.append(sentence)
 
 
 class Corpus:
@@ -57,6 +88,17 @@ class Corpus:
         if sentences is None:
             self.sentences = list()
         self.files = list()
+
+        self.chunks = list()
+
+    def init_chunks(self):
+        """
+        Divides all the sentences in the corpus into chunks with a pre-defined size.
+        :return: None
+        """
+        for sentence_idx in range(len(self.sentences) // CHUNK_SIZE):
+            curr_chunk = self.sentences[sentence_idx: sentence_idx + CHUNK_SIZE]
+            self.chunks.append(Chunk(curr_chunk))
 
     def add_xml_file_to_corpus(self, file_name: str):
         """
@@ -84,34 +126,6 @@ class Corpus:
                               pos=word["pos"]))
             self.sentences.append(curr_sentence)
 
-    def add_text_file_to_corpus(self, file_name: str):
-        """
-        This method will receive a file name, such that the file is an text file (from Wikipedia), read the content
-        from it and add it to the corpus in the manner explained in the exercise instructions.
-        :param file_name: The name of the text file that will be read
-        :return: None
-        """
-
-        self.files.append(file_name)
-        text_file = open(file_name, "r", encoding="utf-8")
-        text_file_content = text_file.read()
-
-        # Looping over all paragraphs
-        for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
-            if not self.is_empty(curr_paragraph):
-                # Looping over all sentences in paragraph
-                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
-                    if not self.is_empty(curr_sentence):
-                        sentence = Sentence(sentence_id=str(sentence_id),
-                                            is_title=self.title_delimiter in curr_sentence)
-
-                        # Looping over all tokens in sentence
-                        for curr_token in curr_sentence.split(self.token_delimiter):
-                            curr_token = curr_token.replace(self.title_delimiter, "")
-                            if not self.is_empty(curr_token):
-                                sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
-                        self.sentences.append(sentence)
-
     def create_text_file(self, file_name: str):
         """
         This method will write the content of the corpus in the manner explained in the exercise instructions.
@@ -130,41 +144,6 @@ class Corpus:
             file.write(output.encode())
         file.close()
 
-    def split_to_sentences(self, content):
-        """
-        Splits a segment of text into sentences, while considering abbreviations from a pre-defined list.
-        :param content: The text segment
-        :return: list of sentences
-        """
-
-        regex_pattern = "(" + ''.join(
-            map(re.escape, self.sentence_split_delimiters)) + ")"  # regex pattern to match all delimiters from list
-        last_end = 0  # last index of the previous dot
-        sentences = list()  # list of sentences
-
-        # Loop over all appearances of dot (with whitespace)
-        for appearance in re.finditer(r"\. ", content):
-            curr_str = content[last_end: appearance.start() + 1]
-
-            # Checks if the dot appearance is not any abbreviation
-            is_not_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
-
-            # Add current interval only if it does not end with abbreviation
-            if all(is_not_abbreviation):
-                sentences.extend(re.split(regex_pattern, curr_str))
-                last_end = appearance.end()
-
-        return sentences
-
-    @staticmethod
-    def is_title(paragraph: str):
-        """
-        Checks if a string is a title in text documents.
-        :param paragraph: the input
-        :return: if it contains '=' character
-        """
-        return "=" in paragraph
-
     @staticmethod
     def is_empty(content: str):
         """
@@ -181,14 +160,25 @@ class Corpus:
 
 
 class Classify:
+    def __init__(self, corpus: Corpus):
+        self.corpus = corpus
+        self.chunks = dict()
 
-    def __init__(self):
-        return
+        self.init_classifier()
+
+    def init_classifier(self):
+        # Filtering out all chunks which have unknown gender
+        for chunk in filter(lambda x: x.gender != Gender.unknown, self.corpus.chunks):
+            self.chunks[chunk.idx] = chunk
 
 
 if __name__ == '__main__':
     xml_dir = argv[1]  # directory containing xml files from the BNC corpus, full path
     output_file = argv[2]  # output file name, full path
+
+    corpus = Corpus()
+    for file in listdir(xml_dir):
+        corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
 
     # Implement here your program:
     # 1. Create a corpus from the file in the given directory (up to 1000 XML files from the BNC)
