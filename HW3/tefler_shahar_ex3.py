@@ -42,14 +42,34 @@ class Sentence:
         self.author_names = authors
 
         # Defining gender of the sentence
-        authors_genders = list(map(gender_detector.get_gender, authors))
-        if len(set(authors_genders)) == 1:
-            self.gender = Gender(gender_detector.get_gender(authors_genders[0]))
-        else:
+        if len(authors) == 0:
             self.gender = Gender.unknown
+        else:
+            first_names = list()
+            for name in authors:
+                if "," not in name:
+                    first_names.append(name)
+                else:
+                    first_names.append(name.split(",")[1].strip())
+
+            authors_genders = self.filter_genders(list(map(gender_detector.get_gender, first_names)))
+            if len(set(authors_genders)) == 1:
+                self.gender = Gender[authors_genders[0]]
+            else:
+                self.gender = Gender.unknown
 
         if tokens is None:
             self.tokens = list()
+
+    @staticmethod
+    def filter_genders(genders: list) -> list:
+        updated_genders = list()
+        for gender in genders:
+            if gender == "mostly_female" or gender == "mostly_male" or gender == "andy":
+                updated_genders.append("unknown")
+            else:
+                updated_genders.append(gender)
+        return updated_genders
 
     def add_token(self, token: Token):
         self.tokens.append(token)
@@ -111,9 +131,11 @@ class Corpus:
         xml_file = open(file_name, "r", encoding="utf-8")
         xml_file = BeautifulSoup(xml_file, "xml")
 
+        authors = self.get_authors(xml_file)
+
         sentences = xml_file.findAll("s", recursive=True)
         for sentence in sentences:
-            curr_sentence = Sentence(sentence["n"])
+            curr_sentence = Sentence(sentence["n"], authors)
             for word in sentence.findAll(["w", "c"], recursive=True):
                 if word.name == "c":
                     curr_sentence.add_token(
@@ -153,6 +175,14 @@ class Corpus:
         """
         return re.compile("[\\n\\r]+").match(content) or content == ""
 
+    def get_authors(self, xml_file):
+        """
+        Extracts authors of an XML document.
+        :param xml_file: Input file
+        :return: list of author names
+        """
+        return list(map(lambda x: x.text, list(xml_file.find("sourceDesc").findAll("author"))))
+
 
 # Implement a "Classify" class, that will be built using a corpus of type "Corpus" (thus, you will need to
 # connect it in any way you want to the "Corpus" class). Make sure that the class contains the relevant fields for
@@ -164,7 +194,19 @@ class Classify:
         self.corpus = corpus
         self.chunks = dict()
 
+        self.corpus.init_chunks()
         self.init_classifier()
+
+        male_count, female_count = 0, 0
+
+        for chunk in self.chunks.values():
+            if chunk.gender == Gender.female:
+                female_count += 1
+            else:
+                male_count += 1
+
+        print("Female: {}".format(female_count))
+        print("Male: {}".format(male_count))
 
     def init_classifier(self):
         # Filtering out all chunks which have unknown gender
@@ -177,8 +219,17 @@ if __name__ == '__main__':
     output_file = argv[2]  # output file name, full path
 
     corpus = Corpus()
+
+    ctr = 0
     for file in listdir(xml_dir):
         corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
+        ctr += 1
+
+        if ctr == 50:
+            break
+    # corpus.add_xml_file_to_corpus("bnc/A08.xml")
+
+    classifier = Classify(corpus)
 
     # Implement here your program:
     # 1. Create a corpus from the file in the given directory (up to 1000 XML files from the BNC)
