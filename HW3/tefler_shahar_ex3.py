@@ -2,7 +2,7 @@ from sys import argv
 from os import path
 from os import listdir
 from enum import Enum
-
+from random import sample
 import re
 from bs4 import BeautifulSoup
 import gender_guesser.detector as gender
@@ -196,22 +196,46 @@ class Classify:
 
         self.corpus.init_chunks()
         self.init_classifier()
+        self.print_gender_count()
 
-        male_count, female_count = 0, 0
-
-        for chunk in self.chunks.values():
-            if chunk.gender == Gender.female:
-                female_count += 1
-            else:
-                male_count += 1
-
-        print("Female: {}".format(female_count))
-        print("Male: {}".format(male_count))
+        self.down_sample()
+        self.print_gender_count()
 
     def init_classifier(self):
         # Filtering out all chunks which have unknown gender
-        for chunk in filter(lambda x: x.gender != Gender.unknown, self.corpus.chunks):
-            self.chunks[chunk.idx] = chunk
+        self.chunks = list(filter(lambda x: x.gender != Gender.unknown, self.corpus.chunks))
+
+    def print_gender_count(self) -> None:
+        female_count, male_count = self.count_genders()
+        print("Female: {}".format(female_count))
+        print("Male: {}".format(male_count))
+
+    def count_genders(self) -> tuple:
+        """
+        Counts occurrences of each gender in the chunks.
+        :return: female count, male count
+        """
+        female_count = sum(map(lambda x: int(x.gender == Gender.female), self.chunks))
+        return female_count, len(self.chunks) - female_count
+
+    def get_gender_chunks(self, gender: Gender) -> list:
+        return list(filter(lambda x: x.gender == gender, self.chunks))
+
+    def down_sample(self):
+        """
+        Balances the count between the 2 genders defined.
+        :return: None
+        """
+        female_count, male_count = self.count_genders()
+
+        female_chunks = self.get_gender_chunks(Gender.female)
+        male_chunks = self.get_gender_chunks(Gender.male)
+
+        other_gender, gender_chunks, new_size, max_gender = (
+            male_chunks, female_chunks, male_count, Gender.female) if female_count > male_count else (
+            female_chunks, male_chunks, female_count, Gender.male)
+
+        self.chunks = other_gender + sample(gender_chunks, new_size)
 
 
 if __name__ == '__main__':
