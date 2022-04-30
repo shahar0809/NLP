@@ -305,7 +305,7 @@ class Classify:
         knn_classifier = KNeighborsClassifier(n_neighbors=3)
         custom_vector_score = np.mean(cross_val_score(knn_classifier, custom_vectors, labels, cv=10))
 
-        return bow_score, custom_vector_score
+        return bow_score * 100, custom_vector_score * 100
 
     def train_test(self):
         labels, bow_vectors, custom_vectors = self.get_chunks_attributes()
@@ -313,14 +313,16 @@ class Classify:
         # BoW vector
         x_train, x_test, y_train, y_test = train_test_split(bow_vectors, labels, test_size=0.3)
         knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        y_predict = knn_classifier.fit(x_train, y_train)
-        bow_report = classification_report(labels, y_predict, target_names=["female", "male"])
+        knn_classifier.fit(x_train, y_train)
+        y_predict = knn_classifier.predict(x_train)
+        bow_report = classification_report(y_train, y_predict, target_names=["female", "male"])
 
         # Custom vector
         x_train, x_test, y_train, y_test = train_test_split(custom_vectors, labels, test_size=0.3)
         knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        y_predict = knn_classifier.fit(x_train, y_train)
-        custom_vector_report = classification_report(labels, y_predict, target_names=["female", "male"])
+        knn_classifier.fit(x_train, y_train)
+        y_predict = knn_classifier.predict(x_train)
+        custom_vector_report = classification_report(y_train, y_predict, target_names=["female", "male"])
 
         return bow_report, custom_vector_report
 
@@ -350,7 +352,7 @@ if __name__ == '__main__':
     output_file.write("Female: {}   Male: {}\n\n".format(female_count_after, male_count_after))
 
     output_file.write("== BoW Classification ==\n")
-    output_file.write("Cross Validation Accuracy: {:.3f}\n".format(bow_score))
+    output_file.write("Cross Validation Accuracy: {:.3f}%\n".format(bow_score))
     output_file.write(bow_report + "\n\n")
 
     output_file.write("== Custom Feature Vector Classification ==\n")
