@@ -250,10 +250,6 @@ class Classify:
 
         self.corpus.init_chunks()
         self.init_classifier()
-        self.print_gender_count()
-
-        self.down_sample()
-        self.print_gender_count()
 
     def init_classifier(self):
         # Filtering out all chunks which have unknown gender
@@ -280,7 +276,7 @@ class Classify:
         for chunk in self.chunks:
             labels.append(chunk.gender.value)
             bow_vectors.append(chunk.bag_of_words)
-            custom_vectors.append(chunk.custom_feature_vector.toarray())
+            custom_vectors.append(chunk.custom_feature_vector.to_array())
         return labels, bow_vectors, custom_vectors
 
     def down_sample(self):
@@ -304,12 +300,10 @@ class Classify:
 
         # BoW classification
         knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        bow_score = cross_val_score(knn_classifier, bow_vectors, labels, cv=10)
-        print("BoW score: {}".format(bow_score))
+        bow_score = np.mean(cross_val_score(knn_classifier, bow_vectors, labels, cv=10))
         # Custom feature vector classification
         knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        custom_vector_score = cross_val_score(knn_classifier, custom_vectors, labels, cv=10)
-        print("Custom feature vector score: {}".format(bow_score))
+        custom_vector_score = np.mean(cross_val_score(knn_classifier, custom_vectors, labels, cv=10))
 
         return bow_score, custom_vector_score
 
@@ -328,36 +322,39 @@ class Classify:
         y_predict = knn_classifier.fit(x_train, y_train)
         custom_vector_report = classification_report(labels, y_predict, target_names=["female", "male"])
 
-        print("BoW report:")
-        print(bow_report)
-        print("\nCustom feature vector report:")
-        print(custom_vector_report)
-
         return bow_report, custom_vector_report
 
 
 if __name__ == '__main__':
-    xml_dir = argv[1]  # directory containing xml files from the BNC corpus, full path
-    output_file = argv[2]  # output file name, full path
+    xml_dir = argv[1]
+    output_file = argv[2]
 
     corpus = Corpus()
 
-    ctr = 0
     for file in listdir(xml_dir):
         corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
-        ctr += 1
-
-        if ctr == 50:
-            break
-    # corpus.add_xml_file_to_corpus("bnc/A08.xml")
 
     classifier = Classify(corpus)
+    female_count_before, male_count_before = classifier.count_genders()
+    classifier.down_sample()
+    female_count_after, male_count_after = classifier.count_genders()
 
-    classifier.cross_validation()
-    classifier.train_test()
+    bow_score, custom_vector_score = classifier.cross_validation()
+    bow_report, custom_vector_report = classifier.train_test()
 
-    # Implement here your program:
-    # 1. Create a corpus from the file in the given directory (up to 1000 XML files from the BNC)
-    # 2. Create a classification object based on the class implemented above.
-    # 3. Classify the chunks of text from the corpus as described in the instructions.
-    # 4. Print onto the output file the results from the second task in the wanted format.
+    # Formatting results to output file
+    output_file = open(output_file, "w")
+    output_file.write("Before Down-sampling:\n")
+    output_file.write("Female: {}   Male: {}\n\n".format(female_count_before, male_count_before))
+    output_file.write("After Down-sampling:\n")
+    output_file.write("Female: {}   Male: {}\n\n".format(female_count_after, male_count_after))
+
+    output_file.write("== BoW Classification ==\n")
+    output_file.write("Cross Validation Accuracy: {:.3f}\n".format(bow_score))
+    output_file.write(bow_report + "\n\n")
+
+    output_file.write("== Custom Feature Vector Classification ==\n")
+    output_file.write("Cross Validation Accuracy: {:.3f}\n".format(custom_vector_score))
+    output_file.write(custom_vector_report + "\n\n")
+
+    output_file.close()
