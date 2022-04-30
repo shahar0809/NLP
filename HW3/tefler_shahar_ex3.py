@@ -4,8 +4,18 @@ from os import listdir
 from enum import Enum
 from random import sample
 import re
+
+import numpy as np
 from bs4 import BeautifulSoup
 import gender_guesser.detector as gender
+from string import punctuation
+from collections import Counter
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
 
 
 class Gender(Enum):
@@ -74,6 +84,40 @@ class Sentence:
     def add_token(self, token: Token):
         self.tokens.append(token)
 
+    def count_punctuation_marks(self):
+        """
+        Counts how much punctuation marks are in the sentence.
+        :return: Count of punctuation
+        """
+        counter = 0
+        for token in self.tokens:
+            if token.word in punctuation:
+                counter += 1
+        return counter
+
+    def avg_word_length(self):
+        return sum(map(lambda x: len(x.word), self.tokens)) / len(self.tokens)
+
+
+class MyFeatureVector:
+    def __init__(self, chunk):
+        # Counting average amount of tokens per sentence
+        self.num_of_tokens = sum(map(lambda x: len(x.tokens), chunk.sentences)) / len(chunk.sentences)
+        # Counting average amount of punctuation marks
+        self.num_of_punctuations = sum(map(lambda x: x.count_punctuation_marks(), chunk.sentences)) / len(
+            chunk.sentences)
+        # Counting average word length
+        self.avg_word_length = sum(map(lambda x: x.avg_word_length(), chunk.sentences)) / len(chunk.sentences)
+
+        # Unique words
+        dictionary = Counter()
+        for sentence in chunk.sentences:
+            dictionary.update(sentence.tokens)
+        self.unique_word_ratio = len(dictionary.keys()) / sum(dictionary.values())
+
+    def to_array(self) -> np.ndarray:
+        return np.array([self.num_of_tokens, self.num_of_punctuations, self.avg_word_length, self.unique_word_ratio])
+
 
 class Chunk:
     idx = 0
@@ -89,6 +133,16 @@ class Chunk:
             self.sentences = sentences
 
         self.gender = self.sentences[0].gender
+
+        # Constructing BoW vector
+        vectorizer = TfidfVectorizer()
+        self.bag_of_words = vectorizer.fit_transform(self.__str__()).toarray().flatten()
+
+        # My BoW vector
+        self.custom_feature_vector = MyFeatureVector(self)
+
+    def __str__(self):
+        return list(map(lambda x: x.__str__(), self.sentences))
 
     def add_sentence(self, sentence: Sentence):
         self.sentences.append(sentence)
@@ -221,6 +275,14 @@ class Classify:
     def get_gender_chunks(self, gender: Gender) -> list:
         return list(filter(lambda x: x.gender == gender, self.chunks))
 
+    def get_chunks_attributes(self):
+        labels, bow_vectors, custom_vectors = list(), list(), list()
+        for chunk in self.chunks:
+            labels.append(chunk.gender.value)
+            bow_vectors.append(chunk.bag_of_words)
+            custom_vectors.append(chunk.custom_feature_vector.toarray())
+        return labels, bow_vectors, custom_vectors
+
     def down_sample(self):
         """
         Balances the count between the 2 genders defined.
@@ -236,6 +298,42 @@ class Classify:
             female_chunks, male_chunks, female_count, Gender.male)
 
         self.chunks = other_gender + sample(gender_chunks, new_size)
+
+    def cross_validation(self):
+        labels, bow_vectors, custom_vectors = self.get_chunks_attributes()
+
+        # BoW classification
+        knn_classifier = KNeighborsClassifier(n_neighbors=3)
+        bow_score = cross_val_score(knn_classifier, bow_vectors, labels, cv=10)
+        print("BoW score: {}".format(bow_score))
+        # Custom feature vector classification
+        knn_classifier = KNeighborsClassifier(n_neighbors=3)
+        custom_vector_score = cross_val_score(knn_classifier, custom_vectors, labels, cv=10)
+        print("Custom feature vector score: {}".format(bow_score))
+
+        return bow_score, custom_vector_score
+
+    def train_test(self):
+        labels, bow_vectors, custom_vectors = self.get_chunks_attributes()
+
+        # BoW vector
+        x_train, x_test, y_train, y_test = train_test_split(bow_vectors, labels, test_size=0.3)
+        knn_classifier = KNeighborsClassifier(n_neighbors=3)
+        y_predict = knn_classifier.fit(x_train, y_train)
+        bow_report = classification_report(labels, y_predict, target_names=["female", "male"])
+
+        # Custom vector
+        x_train, x_test, y_train, y_test = train_test_split(custom_vectors, labels, test_size=0.3)
+        knn_classifier = KNeighborsClassifier(n_neighbors=3)
+        y_predict = knn_classifier.fit(x_train, y_train)
+        custom_vector_report = classification_report(labels, y_predict, target_names=["female", "male"])
+
+        print("BoW report:")
+        print(bow_report)
+        print("\nCustom feature vector report:")
+        print(custom_vector_report)
+
+        return bow_report, custom_vector_report
 
 
 if __name__ == '__main__':
@@ -254,6 +352,9 @@ if __name__ == '__main__':
     # corpus.add_xml_file_to_corpus("bnc/A08.xml")
 
     classifier = Classify(corpus)
+
+    classifier.cross_validation()
+    classifier.train_test()
 
     # Implement here your program:
     # 1. Create a corpus from the file in the given directory (up to 1000 XML files from the BNC)
