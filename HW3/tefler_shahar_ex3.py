@@ -168,7 +168,7 @@ class Corpus:
         Divides all the sentences in the corpus into chunks with a pre-defined size.
         :return: None
         """
-        for sentence_idx in range(len(self.sentences) // CHUNK_SIZE):
+        for sentence_idx in range(0, len(self.sentences), CHUNK_SIZE):
             curr_chunk = self.sentences[sentence_idx: sentence_idx + CHUNK_SIZE]
             self.chunks.append(Chunk(curr_chunk))
 
