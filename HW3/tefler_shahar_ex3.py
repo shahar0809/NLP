@@ -5,12 +5,13 @@ from enum import Enum
 from random import sample
 import re
 
+import lxml.etree
 import numpy as np
 from bs4 import BeautifulSoup
 import gender_guesser.detector as gender
 from string import punctuation
 from collections import Counter
-import lxml
+from lxml import etree
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
@@ -136,8 +137,6 @@ class Chunk:
         else:
             self.sentences = sentences
         self.gender = self.sentences[0].gender
-        # My feature vector vector
-        self.custom_feature_vector = MyFeatureVector(self)
 
     def __str__(self):
         return ' '.join(list(map(lambda x: x.__str__(), self.sentences)))
@@ -181,24 +180,33 @@ class Corpus:
         """
         self.files.append(file_name)
         xml_file = open(file_name, "r", encoding="utf-8")
-        xml_file = BeautifulSoup(xml_file, "lxml")
+        # xml_file = BeautifulSoup(xml_file, "lxml")
 
+        xml_file = etree.parse(xml_file)
         authors = self.get_authors(xml_file)
 
-        sentences = xml_file.findAll("s", recursive=True)
-        for sentence in sentences:
-            curr_sentence = Sentence(sentence["n"], authors)
-            for word in sentence.findAll(["w", "c"], recursive=True):
-                if word.name == "c":
-                    curr_sentence.add_token(
-                        Token(word=word.text, is_punctuation=True, is_multiword=word.parent.name == "mw",
-                              c5=word["c5"]))
-                else:
-                    curr_sentence.add_token(
-                        Token(word=word.text, is_punctuation=False, is_multiword=word.parent.name == "mw",
-                              hw=word["hw"], c5=word["c5"],
-                              pos=word["pos"]))
-            self.sentences.append(curr_sentence)
+        # sentences = xml_file.findAll("s", recursive=True)
+        for sentence in xml_file.iter("s"):
+            curr_sentence = Sentence(sentence.get("n"), authors)
+            for word in list(sentence):
+                if word.tag == "w":
+                    curr_sentence.add_token(Token(word=word.text, is_punctuation=False,
+                                                  hw=word.get("hw"), c5=word.get("c5"),
+                                                  pos=word.get("pos")))
+                elif word.tag == "c":
+                    curr_sentence.add_token(Token(word=word.text, is_punctuation=True,
+                                                  c5=word.get("c5")))
+                elif word.tag == "mw":
+                    for sub_word in list(word):
+                        if sub_word.tag == "w":
+                            curr_sentence.add_token(Token(word=sub_word.text, is_punctuation=False,
+                                                          hw=sub_word.get("hw"), c5=sub_word.get("c5"),
+                                                          pos=sub_word.get("pos")))
+                        elif sub_word.tag == "c":
+                            curr_sentence.add_token(Token(word=sub_word.text, is_punctuation=True,
+                                                          c5=sub_word.get("c5")))
+            if len(curr_sentence.tokens) != 0:
+                self.sentences.append(curr_sentence)
 
     def create_text_file(self, file_name: str):
         """
@@ -227,13 +235,14 @@ class Corpus:
         """
         return re.compile("[\\n\\r]+").match(content) or content == ""
 
-    def get_authors(self, xml_file):
+    @staticmethod
+    def get_authors(xml_file: lxml.etree.Element):
         """
         Extracts authors of an XML document.
         :param xml_file: Input file
         :return: list of author names
         """
-        return list(map(lambda x: x.text, list(xml_file.find_all("author"))))
+        return list(map(lambda x: x.text, list(xml_file.findall(".//author"))))
 
 
 class Classify:
@@ -245,15 +254,7 @@ class Classify:
         self.corpus.init_chunks()
         self.chunks = list(filter(lambda x: x.gender != Gender.unknown, self.corpus.chunks))
         self.features = None
-
-    def print_gender_count(self) -> None:
-        """
-        Prints count of each gender.
-        :return: None
-        """
-        female_count, male_count = self.count_genders()
-        print("Female: {}".format(female_count))
-        print("Male: {}".format(male_count))
+        self.my_features = None
 
     def count_genders(self) -> tuple:
         """
@@ -272,16 +273,12 @@ class Classify:
         """
         return list(filter(lambda x: x.gender == gender, self.chunks))
 
-    def get_chunks_attributes(self) -> tuple:
+    def get_labels(self) -> list:
         """
-        Fetches the custom features vector and the label for each chunk in the corpus.
-        :return: list of feature vectors, list of labels
+        Fetches the label for each chunk in the corpus.
+        :return: list of labels
         """
-        labels, custom_vectors = list(), list()
-        for chunk in self.chunks:
-            labels.append(chunk.gender.value)
-            custom_vectors.append(chunk.custom_feature_vector.to_array())
-        return custom_vectors, labels
+        return [chunk.gender.value for chunk in self.chunks]
 
     def bow_chunks(self) -> None:
         """
@@ -292,7 +289,7 @@ class Classify:
         # Concentrate all sentences in a chunk into a single string
         words = list(map(lambda x: x.__str__(), self.chunks))
         self.features = tfidf.fit_transform(words)
-        print("extracted tfidf")
+        self.my_features = [MyFeatureVector(chunk).to_array() for chunk in self.chunks]
 
     def down_sample(self) -> None:
         """
@@ -337,10 +334,10 @@ class Classify:
         :return:
         """
         self.bow_chunks()
-        custom_vectors, labels = self.get_chunks_attributes()
+        labels = self.get_labels()
 
         bow_score, bow_report = self.evaluation(self.features, labels)
-        custom_features_score, custom_features_report = self.evaluation(custom_vectors, labels)
+        custom_features_score, custom_features_report = self.evaluation(self.my_features, labels)
 
         output_file.write("== BoW Classification ==\n")
         output_file.write("Cross Validation Accuracy: {:.3f}%\n".format(bow_score))
@@ -355,14 +352,12 @@ if __name__ == '__main__':
     xml_dir = argv[1]
     output_file = argv[2]
 
-    random.seed(0)
     corpus = Corpus()
 
+    length = len(listdir(xml_dir))
     for counter, file in enumerate(listdir(xml_dir)):
         corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
-        print("file {}".format(counter))
-        if counter == 100:
-            break
+        print("file ({}/{})".format(counter, length))
 
     classifier = Classify(corpus)
     female_count_before, male_count_before = classifier.count_genders()
