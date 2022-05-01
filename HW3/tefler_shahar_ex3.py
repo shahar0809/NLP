@@ -7,7 +7,6 @@ import re
 
 import lxml.etree
 import numpy as np
-from bs4 import BeautifulSoup
 import gender_guesser.detector as gender
 from string import punctuation
 from collections import Counter
@@ -35,7 +34,10 @@ class Token:
                  hw: str = "", c5: str = "",
                  pos: str = ""):
         self.c5 = c5
-        self.word = word
+        if word is None:
+            self.word = ""
+        else:
+            self.word = word
         self.hw = hw
         self.pos = pos
         self.is_title = is_title
@@ -101,7 +103,10 @@ class Sentence:
         return sum(map(lambda x: len(x.word), self.tokens)) / len(self.tokens)
 
     def __str__(self):
-        return ' '.join(list(map(lambda x: x.word, self.tokens)))
+        try:
+            return ' '.join(list(map(lambda x: x.word, self.tokens)))
+        except Exception as e:
+            print(e)
 
 
 class MyFeatureVector:
@@ -189,22 +194,25 @@ class Corpus:
         for sentence in xml_file.iter("s"):
             curr_sentence = Sentence(sentence.get("n"), authors)
             for word in list(sentence):
+                curr_token = None
                 if word.tag == "w":
-                    curr_sentence.add_token(Token(word=word.text, is_punctuation=False,
-                                                  hw=word.get("hw"), c5=word.get("c5"),
-                                                  pos=word.get("pos")))
+                    curr_token = Token(word=word.text, is_punctuation=False,
+                                       hw=word.get("hw"), c5=word.get("c5"),
+                                       pos=word.get("pos"))
                 elif word.tag == "c":
-                    curr_sentence.add_token(Token(word=word.text, is_punctuation=True,
-                                                  c5=word.get("c5")))
+                    curr_token = Token(word=word.text, is_punctuation=True,
+                                       c5=word.get("c5"))
                 elif word.tag == "mw":
                     for sub_word in list(word):
                         if sub_word.tag == "w":
-                            curr_sentence.add_token(Token(word=sub_word.text, is_punctuation=False,
-                                                          hw=sub_word.get("hw"), c5=sub_word.get("c5"),
-                                                          pos=sub_word.get("pos")))
+                            curr_token = Token(word=sub_word.text, is_punctuation=False,
+                                               hw=sub_word.get("hw"), c5=sub_word.get("c5"),
+                                               pos=sub_word.get("pos"))
                         elif sub_word.tag == "c":
-                            curr_sentence.add_token(Token(word=sub_word.text, is_punctuation=True,
-                                                          c5=sub_word.get("c5")))
+                            curr_token = Token(word=sub_word.text, is_punctuation=True,
+                                               c5=sub_word.get("c5"))
+                if curr_token is not None:
+                    curr_sentence.add_token(curr_token)
             if len(curr_sentence.tokens) != 0:
                 self.sentences.append(curr_sentence)
 
@@ -333,11 +341,20 @@ class Classify:
         :param output_file: file to output to
         :return:
         """
+        female_count_before, male_count_before = classifier.count_genders()
+        classifier.down_sample()
+        female_count_after, male_count_after = classifier.count_genders()
+
         self.bow_chunks()
         labels = self.get_labels()
 
         bow_score, bow_report = self.evaluation(self.features, labels)
         custom_features_score, custom_features_report = self.evaluation(self.my_features, labels)
+
+        output_file.write("Before Down-sampling:\n")
+        output_file.write("Female: {}   Male: {}\n".format(female_count_before, male_count_before))
+        output_file.write("After Down-sampling:\n")
+        output_file.write("Female: {}   Male: {}\n".format(female_count_after, male_count_after))
 
         output_file.write("== BoW Classification ==\n")
         output_file.write("Cross Validation Accuracy: {:.3f}%\n".format(bow_score))
@@ -357,12 +374,9 @@ if __name__ == '__main__':
     length = len(listdir(xml_dir))
     for counter, file in enumerate(listdir(xml_dir)):
         corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
-        print("file ({}/{})".format(counter, length))
+        print("file ({}/{})".format(counter + 1, length))
 
     classifier = Classify(corpus)
-    female_count_before, male_count_before = classifier.count_genders()
-    classifier.down_sample()
-    female_count_after, male_count_after = classifier.count_genders()
 
     # Formatting results to output file
     output_file = open(output_file, "w")
