@@ -1,6 +1,6 @@
+import random
 from sys import argv
-from os import path
-from os import listdir
+from os import path, listdir
 from enum import Enum
 from random import sample
 import re
@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import gender_guesser.detector as gender
 from string import punctuation
 from collections import Counter
+import lxml
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import KNeighborsClassifier
@@ -98,6 +99,9 @@ class Sentence:
     def avg_word_length(self):
         return sum(map(lambda x: len(x.word), self.tokens)) / len(self.tokens)
 
+    def __str__(self):
+        return ' '.join(list(map(lambda x: x.word, self.tokens)))
+
 
 class MyFeatureVector:
     def __init__(self, chunk):
@@ -131,18 +135,12 @@ class Chunk:
             self.sentences = list()
         else:
             self.sentences = sentences
-
         self.gender = self.sentences[0].gender
-
-        # Constructing BoW vector
-        vectorizer = TfidfVectorizer()
-        self.bag_of_words = vectorizer.fit_transform(self.__str__()).toarray().flatten()
-
-        # My BoW vector
+        # My feature vector vector
         self.custom_feature_vector = MyFeatureVector(self)
 
     def __str__(self):
-        return list(map(lambda x: x.__str__(), self.sentences))
+        return ' '.join(list(map(lambda x: x.__str__(), self.sentences)))
 
     def add_sentence(self, sentence: Sentence):
         self.sentences.append(sentence)
@@ -183,7 +181,7 @@ class Corpus:
         """
         self.files.append(file_name)
         xml_file = open(file_name, "r", encoding="utf-8")
-        xml_file = BeautifulSoup(xml_file, "xml")
+        xml_file = BeautifulSoup(xml_file, "lxml")
 
         authors = self.get_authors(xml_file)
 
@@ -235,27 +233,24 @@ class Corpus:
         :param xml_file: Input file
         :return: list of author names
         """
-        return list(map(lambda x: x.text, list(xml_file.find("sourceDesc").findAll("author"))))
-
-
-# Implement a "Classify" class, that will be built using a corpus of type "Corpus" (thus, you will need to
-# connect it in any way you want to the "Corpus" class). Make sure that the class contains the relevant fields for
-# classification, and the methods in order to complete the tasks:
+        return list(map(lambda x: x.text, list(xml_file.find_all("author"))))
 
 
 class Classify:
-    def __init__(self, corpus: Corpus):
+    def __init__(self, corpus: Corpus) -> None:
+        """
+        Initializes the classifier with the corpus and genders.
+        """
         self.corpus = corpus
-        self.chunks = dict()
-
         self.corpus.init_chunks()
-        self.init_classifier()
-
-    def init_classifier(self):
-        # Filtering out all chunks which have unknown gender
         self.chunks = list(filter(lambda x: x.gender != Gender.unknown, self.corpus.chunks))
+        self.features = None
 
     def print_gender_count(self) -> None:
+        """
+        Prints count of each gender.
+        :return: None
+        """
         female_count, male_count = self.count_genders()
         print("Female: {}".format(female_count))
         print("Male: {}".format(male_count))
@@ -266,20 +261,40 @@ class Classify:
         :return: female count, male count
         """
         female_count = sum(map(lambda x: int(x.gender == Gender.female), self.chunks))
-        return female_count, len(self.chunks) - female_count
+        male_count = sum(map(lambda x: int(x.gender == Gender.male), self.chunks))
+        return female_count, male_count
 
     def get_gender_chunks(self, gender: Gender) -> list:
+        """
+        Fetches all the chunks that are classified to the input gender.
+        :param gender: input gender
+        :return: list of all matching chunks
+        """
         return list(filter(lambda x: x.gender == gender, self.chunks))
 
-    def get_chunks_attributes(self):
-        labels, bow_vectors, custom_vectors = list(), list(), list()
+    def get_chunks_attributes(self) -> tuple:
+        """
+        Fetches the custom features vector and the label for each chunk in the corpus.
+        :return: list of feature vectors, list of labels
+        """
+        labels, custom_vectors = list(), list()
         for chunk in self.chunks:
             labels.append(chunk.gender.value)
-            bow_vectors.append(chunk.bag_of_words)
             custom_vectors.append(chunk.custom_feature_vector.to_array())
-        return labels, bow_vectors, custom_vectors
+        return custom_vectors, labels
 
-    def down_sample(self):
+    def bow_chunks(self) -> None:
+        """
+        Calculates the TF-IDF vector for all chunks
+        :return: None
+        """
+        tfidf = TfidfVectorizer()
+        # Concentrate all sentences in a chunk into a single string
+        words = list(map(lambda x: x.__str__(), self.chunks))
+        self.features = tfidf.fit_transform(words)
+        print("extracted tfidf")
+
+    def down_sample(self) -> None:
         """
         Balances the count between the 2 genders defined.
         :return: None
@@ -289,74 +304,72 @@ class Classify:
         female_chunks = self.get_gender_chunks(Gender.female)
         male_chunks = self.get_gender_chunks(Gender.male)
 
-        other_gender, gender_chunks, new_size, max_gender = (
-            male_chunks, female_chunks, male_count, Gender.female) if female_count > male_count else (
-            female_chunks, male_chunks, female_count, Gender.male)
+        other_gender, gender_chunks, new_size = (
+            male_chunks, female_chunks, male_count) if female_count > male_count else (
+            female_chunks, male_chunks, female_count)
 
         self.chunks = other_gender + sample(gender_chunks, new_size)
 
-    def cross_validation(self):
-        labels, bow_vectors, custom_vectors = self.get_chunks_attributes()
+    @staticmethod
+    def evaluation(data, labels) -> tuple:
+        """
+        Evaluates a model given a data and its corresponding labels.
+        :param data: input data
+        :param labels: matching labels
+        :return: score of model, report
+        """
+        knn_classifier = KNeighborsClassifier(n_neighbors=5)
+        score = np.mean(cross_val_score(knn_classifier, data, labels, cv=10))
 
-        # BoW classification
-        knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        bow_score = np.mean(cross_val_score(knn_classifier, bow_vectors, labels, cv=10))
-        # Custom feature vector classification
-        knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        custom_vector_score = np.mean(cross_val_score(knn_classifier, custom_vectors, labels, cv=10))
-
-        return bow_score * 100, custom_vector_score * 100
-
-    def train_test(self):
-        labels, bow_vectors, custom_vectors = self.get_chunks_attributes()
-
-        # BoW vector
-        x_train, x_test, y_train, y_test = train_test_split(bow_vectors, labels, test_size=0.3)
-        knn_classifier = KNeighborsClassifier(n_neighbors=3)
+        # Normal testing with test-train split
+        x_train, x_test, y_train, y_test = train_test_split(data, labels, test_size=0.3, random_state=42)
+        knn_classifier = KNeighborsClassifier(n_neighbors=5)
         knn_classifier.fit(x_train, y_train)
-        y_predict = knn_classifier.predict(x_train)
-        bow_report = classification_report(y_train, y_predict, target_names=["female", "male"])
+        y_predict = knn_classifier.predict(x_test)
+        report = classification_report(y_test, y_predict, target_names=["female", "male"])
 
-        # Custom vector
-        x_train, x_test, y_train, y_test = train_test_split(custom_vectors, labels, test_size=0.3)
-        knn_classifier = KNeighborsClassifier(n_neighbors=3)
-        knn_classifier.fit(x_train, y_train)
-        y_predict = knn_classifier.predict(x_train)
-        custom_vector_report = classification_report(y_train, y_predict, target_names=["female", "male"])
+        return score * 100, report
 
-        return bow_report, custom_vector_report
+    def print_evaluation_to_file(self, output_file) -> None:
+        """
+        Prints the evaluation of each model (BoW, custom features) into the file in the defined format.
+        :param output_file: file to output to
+        :return:
+        """
+        self.bow_chunks()
+        custom_vectors, labels = self.get_chunks_attributes()
+
+        bow_score, bow_report = self.evaluation(self.features, labels)
+        custom_features_score, custom_features_report = self.evaluation(custom_vectors, labels)
+
+        output_file.write("== BoW Classification ==\n")
+        output_file.write("Cross Validation Accuracy: {:.3f}%\n".format(bow_score))
+        output_file.write(bow_report + "\n\n")
+
+        output_file.write("== Custom Feature Vector Classification ==\n")
+        output_file.write("Cross Validation Accuracy: {:.3f}\n".format(custom_features_score))
+        output_file.write(custom_features_report + "\n\n")
 
 
 if __name__ == '__main__':
     xml_dir = argv[1]
     output_file = argv[2]
 
+    random.seed(0)
     corpus = Corpus()
 
-    for file in listdir(xml_dir):
+    for counter, file in enumerate(listdir(xml_dir)):
         corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
+        print("file {}".format(counter))
+        if counter == 100:
+            break
 
     classifier = Classify(corpus)
     female_count_before, male_count_before = classifier.count_genders()
     classifier.down_sample()
     female_count_after, male_count_after = classifier.count_genders()
 
-    bow_score, custom_vector_score = classifier.cross_validation()
-    bow_report, custom_vector_report = classifier.train_test()
-
     # Formatting results to output file
     output_file = open(output_file, "w")
-    output_file.write("Before Down-sampling:\n")
-    output_file.write("Female: {}   Male: {}\n\n".format(female_count_before, male_count_before))
-    output_file.write("After Down-sampling:\n")
-    output_file.write("Female: {}   Male: {}\n\n".format(female_count_after, male_count_after))
-
-    output_file.write("== BoW Classification ==\n")
-    output_file.write("Cross Validation Accuracy: {:.3f}%\n".format(bow_score))
-    output_file.write(bow_report + "\n\n")
-
-    output_file.write("== Custom Feature Vector Classification ==\n")
-    output_file.write("Cross Validation Accuracy: {:.3f}\n".format(custom_vector_score))
-    output_file.write(custom_vector_report + "\n\n")
-
+    classifier.print_evaluation_to_file(output_file)
     output_file.close()
