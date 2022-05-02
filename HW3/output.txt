@@ -1,0 +1,28 @@
+Before Down-sampling:
+Female: 18978   Male: 40624
+After Down-sampling:
+Female: 18978   Male: 18978
+== BoW Classification ==
+Cross Validation Accuracy: 78.805%
+              precision    recall  f1-score   support
+
+      female       0.86      0.94      0.90      5708
+        male       0.94      0.85      0.89      5679
+
+    accuracy                           0.90     11387
+   macro avg       0.90      0.90      0.90     11387
+weighted avg       0.90      0.90      0.90     11387
+
+
+== Custom Feature Vector Classification ==
+Cross Validation Accuracy: 57.288
+              precision    recall  f1-score   support
+
+      female       0.59      0.59      0.59      5708
+        male       0.58      0.58      0.58      5679
+
+    accuracy                           0.58     11387
+   macro avg       0.58      0.58      0.58     11387
+weighted avg       0.58      0.58      0.58     11387
+
+
