@@ -153,13 +153,14 @@ def word_pairs() -> List[Tuple[str, str]]:
 
 
 def analogies(model: KeyedVectors) -> tuple:
-    pairs = [(("hot", "cold"), ("good", "bad")), (("day", "night"), ("right", "left")),
-             (("cool", "cold"), ("warm", "hot")), (("tall", "short"), ("heavy", "thin")),
+    pairs = [(("hot", "cold"), ("love", "hate")), (("dog", "cat"), ("right", "left")),
+             (("lighting", "thunder"), ("puppy", "dog")), (("north", "south"), ("boy", "girl")),
              (("like", "love"), ("dislike", "hate"))]
 
     words = list()
     for (pair, arithmetic_pair) in pairs:
-        words += [model.most_similar(positive=[pair[0], arithmetic_pair[0]], negative=[arithmetic_pair[1]])]
+        words += [model.most_similar(positive=[pair[0], arithmetic_pair[0]], negative=[arithmetic_pair[1]], topn=1)[0][
+            0]]
 
     return pairs, words
 
@@ -181,11 +182,20 @@ def format_output(model, output):
     pairs, most_similar = analogies(model)
     output.write("\nAnalogies:\n")
     for idx, analogy in enumerate(pairs):
-        output.write("{}. {}:{}, {}:{}\n".format(idx + 1, *analogy))
+        output.write("{}. {}:{}, {}:{}\n".format(idx + 1, *analogy[0], *analogy[1]))
 
     output.write("\nMost Similar:\n")
     for idx, (analogy, complement) in enumerate(pairs):
-        output.write("{}. {} + {} - {} = {}\n".format(idx + 1, analogy[0], complement[0], complement[1]))
+        output.write(
+            "{}. {} + {} - {} = {}\n".format(idx + 1, analogy[0], complement[0], complement[1], most_similar[idx]))
+
+    output.write("\nDistances:\n")
+    for idx, (analogy, complement) in enumerate(pairs):
+        output.write(
+            "{}. {} - {} : {}\n".format(idx + 1, analogy[1], most_similar[idx],
+                                        cos_distance(model, (analogy[1], most_similar[idx]))))
+
+    output.close()
 
 
 if __name__ == "__main__":
