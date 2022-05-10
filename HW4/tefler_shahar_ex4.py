@@ -6,6 +6,7 @@ from gensim.scripts.glove2word2vec import glove2word2vec
 from gensim.models import KeyedVectors
 from sys import argv
 from os import listdir, path
+from typing import List, Tuple
 
 
 class Token:
@@ -137,13 +138,54 @@ def convert_to_word2vec(text_filename: str, kv_filename: str) -> None:
     # Save the GloVe text file to a word2vec file for your use:
     glove2word2vec(text_filename, kv_filename)
     # Load the file as KeyVectors:
-    pre_trained_model = KeyedVectors.load_word2vec_format(kv_filename, binary=False)
+    model = KeyedVectors.load_word2vec_format(kv_filename, binary=False)
     # Save the key vectors for your use:
-    pre_trained_model.save(kv_filename)
+    model.save(kv_filename)
 
 
 def load_key_vector(kv_filename: str) -> object:
     return KeyedVectors.load(kv_filename, mmap='r')
+
+
+def word_pairs() -> List[Tuple[str, str]]:
+    return [("hot", "cold"), ("good", "bad"), ("west", "east"), ("always", "never"), ("yes", "no"),
+            ("apple", "banana"), ("kid", "child"), ("play", "act"), ("little", "tiny"), ("van", "car")]
+
+
+def analogies(model: KeyedVectors) -> tuple:
+    pairs = [(("hot", "cold"), ("good", "bad")), (("day", "night"), ("right", "left")),
+             (("cool", "cold"), ("warm", "hot")), (("tall", "short"), ("heavy", "thin")),
+             (("like", "love"), ("dislike", "hate"))]
+
+    words = list()
+    for (pair, arithmetic_pair) in pairs:
+        words += [model.most_similar(positive=[pair[0], arithmetic_pair[0]], negative=[arithmetic_pair[1]])]
+
+    return pairs, words
+
+
+def cos_distance(model: KeyedVectors, pair: Tuple[str, str]) -> float:
+    return model.similarity(*pair)
+
+
+def format_output(model, output):
+    # Word Pairs
+    pairs = word_pairs()
+    cos_dist = {pair: cos_distance(model, pair) for pair in pairs}
+
+    output.write("Word Pairs and Distances:\n")
+    for idx, pair in enumerate(cos_dist.keys()):
+        output.write("{}. {} - {}: {:.3f}\n".format(idx + 1, pair[0], pair[1], cos_dist[pair]))
+
+    # Analogies
+    pairs, most_similar = analogies(model)
+    output.write("\nAnalogies:\n")
+    for idx, analogy in enumerate(pairs):
+        output.write("{}. {}:{}, {}:{}\n".format(idx + 1, *analogy))
+
+    output.write("\nMost Similar:\n")
+    for idx, (analogy, complement) in enumerate(pairs):
+        output.write("{}. {} + {} - {} = {}\n".format(idx + 1, analogy[0], complement[0], complement[1]))
 
 
 if __name__ == "__main__":
@@ -153,9 +195,11 @@ if __name__ == "__main__":
     tweets_file = argv[4]
     output_file = argv[5]
 
-    convert_to_word2vec(kv_file, path.join("word2vec", path.basename(kv_file)[:-4] + ".kv"))
+    output_file = open(output_file, "w")
 
+    # convert_to_word2vec(kv_file, path.join("word2vec", path.basename(kv_file)[:-4] + ".kv"))
+    pre_trained_model = load_key_vector(kv_file)
+    format_output(pre_trained_model, output_file)
     # corpus = Corpus()
     # for file in listdir(xml_dir):
     #     corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
-
