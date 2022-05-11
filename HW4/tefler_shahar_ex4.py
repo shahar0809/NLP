@@ -1,12 +1,12 @@
 import re
-from xml import etree
-
-import lxml as lxml
-from gensim.scripts.glove2word2vec import glove2word2vec
-from gensim.models import KeyedVectors
-from sys import argv
+from builtins import function
 from os import listdir, path
+from sys import argv
 from typing import List, Tuple
+from xml import etree
+from random import uniform
+from gensim.models import KeyedVectors
+from gensim.scripts.glove2word2vec import glove2word2vec
 
 
 class Token:
@@ -73,10 +73,11 @@ class Corpus:
         # xml_file = BeautifulSoup(xml_file, "lxml")
 
         xml_file = etree.parse(xml_file)
+        authors = self.get_authors(xml_file)
 
         # sentences = xml_file.findAll("s", recursive=True)
         for sentence in xml_file.iter("s"):
-            curr_sentence = Sentence(sentence.get("n"))
+            curr_sentence = Sentence(sentence.get("n"), authors)
             for word in list(sentence):
                 curr_token = None
                 if word.tag == "w":
@@ -100,6 +101,34 @@ class Corpus:
             if len(curr_sentence.tokens) != 0:
                 self.sentences.append(curr_sentence)
 
+    def add_text_file_to_corpus(self, file_name: str):
+        """
+        This method will receive a file name, such that the file is an text file (from Wikipedia), read the content
+        from it and add it to the corpus in the manner explained in the exercise instructions.
+        :param file_name: The name of the text file that will be read
+        :return: None
+        """
+
+        self.files.append(file_name)
+        text_file = open(file_name, "r", encoding="utf-8")
+        text_file_content = text_file.read()
+
+        # Looping over all paragraphs
+        for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
+            if not self.is_empty(curr_paragraph):
+                # Looping over all sentences in paragraph
+                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
+                    if not self.is_empty(curr_sentence):
+                        sentence = Sentence(sentence_id=str(sentence_id),
+                                            is_title=self.title_delimiter in curr_sentence)
+
+                        # Looping over all tokens in sentence
+                        for curr_token in curr_sentence.split(self.token_delimiter):
+                            curr_token = curr_token.replace(self.title_delimiter, "")
+                            if not self.is_empty(curr_token):
+                                sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
+                        self.sentences.append(sentence)
+
     def create_text_file(self, file_name: str):
         """
         This method will write the content of the corpus in the manner explained in the exercise instructions.
@@ -117,6 +146,41 @@ class Corpus:
                 output = ":title: " + output
             file.write(output.encode())
         file.close()
+
+    def split_to_sentences(self, content):
+        """
+        Splits a segment of text into sentences, while considering abbreviations from a pre-defined list.
+        :param content: The text segment
+        :return: list of sentences
+        """
+
+        regex_pattern = "(" + ''.join(
+            map(re.escape, self.sentence_split_delimiters)) + ")"  # regex pattern to match all delimiters from list
+        last_end = 0  # last index of the previous dot
+        sentences = list()  # list of sentences
+
+        # Loop over all appearances of dot (with whitespace)
+        for appearance in re.finditer(r"\. ", content):
+            curr_str = content[last_end: appearance.start() + 1]
+
+            # Checks if the dot appearance is not any abbreviation
+            is_not_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
+
+            # Add current interval only if it does not end with abbreviation
+            if all(is_not_abbreviation):
+                sentences.extend(re.split(regex_pattern, curr_str))
+                last_end = appearance.end()
+
+        return sentences
+
+    @staticmethod
+    def is_title(paragraph: str):
+        """
+        Checks if a string is a title in text documents.
+        :param paragraph: the input
+        :return: if it contains '=' character
+        """
+        return "=" in paragraph
 
     @staticmethod
     def is_empty(content: str):
@@ -160,7 +224,7 @@ def analogies(model: KeyedVectors) -> tuple:
     words = list()
     for (pair, arithmetic_pair) in pairs:
         words += [model.most_similar(positive=[pair[0], arithmetic_pair[0]], negative=[arithmetic_pair[1]], topn=1)[0][
-            0]]
+                      0]]
 
     return pairs, words
 
@@ -169,7 +233,7 @@ def cos_distance(model: KeyedVectors, pair: Tuple[str, str]) -> float:
     return model.similarity(*pair)
 
 
-def format_output(model, output):
+def word_similarities(model, output):
     # Word Pairs
     pairs = word_pairs()
     cos_dist = {pair: cos_distance(model, pair) for pair in pairs}
@@ -195,6 +259,29 @@ def format_output(model, output):
             "{}. {} - {} : {}\n".format(idx + 1, analogy[1], most_similar[idx],
                                         cos_distance(model, (analogy[1], most_similar[idx]))))
 
+
+def arithmetic_average(word: Token) -> float:
+    return 1
+
+
+def random_weights(word: Token) -> float:
+    return uniform(0, 9.999999)
+
+
+def vectors_average(words: list, weight_func: function):
+    result = 0
+    for word in words:
+        result += weight_func(word) * word
+    return result / len(words)
+
+
+def format_tweets(tweets, model, output):
+    tweets_corpus = Corpus()
+    tweets_corpus.add_text_file_to_corpus(tweets)
+
+
+def format_output(model, output):
+    word_similarities(model, output)
     output.close()
 
 
@@ -210,6 +297,6 @@ if __name__ == "__main__":
     # convert_to_word2vec(kv_file, path.join("word2vec", path.basename(kv_file)[:-4] + ".kv"))
     pre_trained_model = load_key_vector(kv_file)
     format_output(pre_trained_model, output_file)
-    # corpus = Corpus()
-    # for file in listdir(xml_dir):
-    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
+    corpus = Corpus()
+    for file in listdir(xml_dir):
+        corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
