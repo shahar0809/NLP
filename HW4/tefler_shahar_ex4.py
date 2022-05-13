@@ -1,12 +1,15 @@
 import re
-from builtins import function
 from os import listdir, path
 from sys import argv
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 from xml import etree
 from random import uniform
+from sklearn.decomposition import PCA
+
+import numpy as np
 from gensim.models import KeyedVectors
 from gensim.scripts.glove2word2vec import glove2word2vec
+import matplotlib.pyplot as plt
 
 
 class Token:
@@ -23,6 +26,7 @@ class Token:
         self.is_title = is_title
         self.is_multiword = is_multiword
         self.is_punctuation = is_punctuation
+        self.word_vector = None
 
     def __str__(self):
         return self.word.replace(" ", "")
@@ -35,6 +39,7 @@ class Sentence:
         self.tokens = tokens
         if tokens is None:
             self.tokens = list()
+        self.word_vector = None
 
     def add_token(self, token: Token):
         self.tokens.append(token)
@@ -44,6 +49,23 @@ class Sentence:
             return ' '.join(list(map(lambda x: x.word, self.tokens)))
         except Exception as e:
             print(e)
+
+
+class Tweet:
+    def __init__(self, idx: int, category: str):
+        self.idx = idx
+        self.sentences = list()
+        self.category = category
+
+    def set_sentences(self, sentences: List[Sentence]):
+        self.sentences = sentences
+
+    def tweet_vector(self, model: KeyedVectors, weight_func: Callable) -> np.ndarray:
+        tweet_vector = np.zeros(50)
+        for sentence in self.sentences:
+            sentence.word_vector = vectors_average(sentence.tokens, weight_func, model)
+            tweet_vector += sentence.word_vector
+        return tweet_vector / len(self.sentences)
 
 
 class Corpus:
@@ -57,6 +79,7 @@ class Corpus:
 
     def __init__(self, sentences: list = None):
         self.sentences = sentences
+        self.tweets = list()
         if sentences is None:
             self.sentences = list()
         self.files = list()
@@ -116,18 +139,36 @@ class Corpus:
         # Looping over all paragraphs
         for curr_paragraph in text_file_content.split(self.paragraph_delimiter):
             if not self.is_empty(curr_paragraph):
-                # Looping over all sentences in paragraph
-                for sentence_id, curr_sentence in enumerate(self.split_to_sentences(curr_paragraph)):
-                    if not self.is_empty(curr_sentence):
-                        sentence = Sentence(sentence_id=str(sentence_id),
-                                            is_title=self.title_delimiter in curr_sentence)
+                self.sentences = self.tokenize(curr_paragraph)
 
-                        # Looping over all tokens in sentence
-                        for curr_token in curr_sentence.split(self.token_delimiter):
-                            curr_token = curr_token.replace(self.title_delimiter, "")
-                            if not self.is_empty(curr_token):
-                                sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
-                        self.sentences.append(sentence)
+    def add_tweets_file_to_corpus(self, file_name: str):
+        text_file = open(file_name, "r", encoding="utf-8")
+        text_file_content = text_file.read()
+
+        tweet_counter = 0
+        for category in text_file_content.split("== ")[1:]:
+            category_name = category[:category.find(" ==")]
+            category = category.split(self.paragraph_delimiter)[1:]
+            for tweet_text in category:
+                tweet = Tweet(tweet_counter, category_name)
+                tweet.set_sentences(self.tokenize(tweet_text))
+                self.tweets.append(tweet)
+                tweet_counter += 1
+
+    def tokenize(self, text: str) -> List[Sentence]:
+        sentences = list()
+        for sentence_id, curr_sentence in enumerate(filter(lambda x: len(x) != 0, self.split_to_sentences(text))):
+            if not self.is_empty(curr_sentence):
+                sentence = Sentence(sentence_id=str(sentence_id),
+                                    is_title=self.title_delimiter in curr_sentence)
+
+                # Looping over all tokens in sentence
+                for curr_token in re.findall(r"\w+|[^\s\w]+", curr_sentence):
+                    curr_token = curr_token.replace(self.title_delimiter, "")
+                    if not self.is_empty(curr_token):
+                        sentence.add_token(Token(curr_token, self.is_title(curr_sentence), False))
+                sentences.append(sentence)
+        return sentences
 
     def create_text_file(self, file_name: str):
         """
@@ -154,8 +195,7 @@ class Corpus:
         :return: list of sentences
         """
 
-        regex_pattern = "(" + ''.join(
-            map(re.escape, self.sentence_split_delimiters)) + ")"  # regex pattern to match all delimiters from list
+        regex_pattern = r"(?<=[\)?!.:;-])"
         last_end = 0  # last index of the previous dot
         sentences = list()  # list of sentences
 
@@ -230,6 +270,12 @@ def analogies(model: KeyedVectors) -> tuple:
 
 
 def cos_distance(model: KeyedVectors, pair: Tuple[str, str]) -> float:
+    """
+    Calculates the cosine distance between 2 words using the pre-trained model.
+    :param model: word2vec model
+    :param pair: A tuple containing the two input words
+    :return: Cosine distance between the words
+    """
     return model.similarity(*pair)
 
 
@@ -268,16 +314,25 @@ def random_weights(word: Token) -> float:
     return uniform(0, 9.999999)
 
 
-def vectors_average(words: list, weight_func: function):
-    result = 0
-    for word in words:
-        result += weight_func(word) * word
+def vectors_average(words: List[Token], weight_func: Callable, model: KeyedVectors) -> np.ndarray:
+    result = np.zeros(50)
+    for token in words:
+        result += weight_func(token) * model[token.word.lower().strip()]
     return result / len(words)
 
 
-def format_tweets(tweets, model, output):
+def format_tweets(tweets, model: KeyedVectors):
     tweets_corpus = Corpus()
-    tweets_corpus.add_text_file_to_corpus(tweets)
+    tweets_corpus.add_tweets_file_to_corpus(tweets)
+
+    graph_points = list()
+    for weight_func in [arithmetic_average, random_weights]:
+        pca = PCA(n_components=2)
+        embedded_vectors = np.array([tweet.tweet_vector(model, weight_func) for tweet in tweets_corpus.tweets])
+        graph_points += [pca.fit_transform(embedded_vectors)]
+
+        plt.plot(graph_points[:, 0], graph_points[:, 1])
+    plt.show()
 
 
 def format_output(model, output):
@@ -297,6 +352,9 @@ if __name__ == "__main__":
     # convert_to_word2vec(kv_file, path.join("word2vec", path.basename(kv_file)[:-4] + ".kv"))
     pre_trained_model = load_key_vector(kv_file)
     format_output(pre_trained_model, output_file)
+
+    format_tweets(tweets_file, pre_trained_model)
+
     corpus = Corpus()
-    for file in listdir(xml_dir):
-        corpus.add_xml_file_to_corpus(path.join(xml_dir, file))
+    # for file in listdir(xml_dir):
+    #     corpus.add_xml_file_to_corpus(path.join(xml_dir, file))

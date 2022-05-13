@@ -13,20 +13,20 @@ Word Pairs and Distances:
 Analogies:
 1. hot:cold, love:hate
 2. dog:cat, right:left
-3. kitten:cat, puppy:dog
+3. lighting:thunder, puppy:dog
 4. north:south, boy:girl
 5. like:love, dislike:hate
 
 Most Similar:
 1. hot + love - hate = cool
 2. dog + right - left = cat
-3. kitten + puppy - dog = pacifier
+3. lighting + puppy - dog = energy-efficient
 4. north + boy - girl = south
 5. like + dislike - hate = likes
 
 Distances:
 1. cold - cool : 0.8103548884391785
 2. cat - cat : 1.0
-3. cat - pacifier : 0.4306098520755768
+3. thunder - energy-efficient : -0.1744941920042038
 4. south - south : 0.9999999403953552
 5. love - likes : 0.7390417456626892
