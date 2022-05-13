@@ -11,6 +11,8 @@ from gensim.models import KeyedVectors
 from gensim.scripts.glove2word2vec import glove2word2vec
 import matplotlib.pyplot as plt
 
+VECTOR_DIMENSION = 50
+
 
 class Token:
     def __init__(self, word: str = "", is_punctuation: bool = False, is_title: bool = False, is_multiword: bool = False,
@@ -61,7 +63,7 @@ class Tweet:
         self.sentences = sentences
 
     def tweet_vector(self, model: KeyedVectors, weight_func: Callable) -> np.ndarray:
-        tweet_vector = np.zeros(50)
+        tweet_vector = np.zeros(VECTOR_DIMENSION)
         for sentence in self.sentences:
             sentence.word_vector = vectors_average(sentence.tokens, weight_func, model)
             tweet_vector += sentence.word_vector
@@ -150,10 +152,12 @@ class Corpus:
             category_name = category[:category.find(" ==")]
             category = category.split(self.paragraph_delimiter)[1:]
             for tweet_text in category:
-                tweet = Tweet(tweet_counter, category_name)
-                tweet.set_sentences(self.tokenize(tweet_text))
-                self.tweets.append(tweet)
-                tweet_counter += 1
+                if not self.is_empty(tweet_text):
+                    tweet = Tweet(tweet_counter, category_name)
+                    tweet.set_sentences(self.tokenize(tweet_text))
+                    if len(tweet.sentences) != 0:
+                        self.tweets.append(tweet)
+                        tweet_counter += 1
 
     def tokenize(self, text: str) -> List[Sentence]:
         sentences = list()
@@ -195,23 +199,24 @@ class Corpus:
         :return: list of sentences
         """
 
-        regex_pattern = r"(?<=[\)?!.:;-])"
-        last_end = 0  # last index of the previous dot
-        sentences = list()  # list of sentences
+        regex_pattern = r"(?<=[\)*?!.:;-])"
+
+        # if "." not in content or content.find(".") == len(content) - 1:
+        #     return re.split(regex_pattern, content)
 
         # Loop over all appearances of dot (with whitespace)
-        for appearance in re.finditer(r"\. ", content):
-            curr_str = content[last_end: appearance.start() + 1]
+        # for appearance in re.finditer(r"\. ", content):
+        #     curr_str = content[last_end: appearance.start() + 1]
+        #
+        #     # Checks if the dot appearance is not any abbreviation
+        #     is_not_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
+        #
+        #     # Add current interval only if it does not end with abbreviation
+        #     if all(is_not_abbreviation):
+        #         sentences.extend(re.split(regex_pattern, curr_str))
+        #         last_end = appearance.end()
 
-            # Checks if the dot appearance is not any abbreviation
-            is_not_abbreviation = [not curr_str.endswith(abbreviation) for abbreviation in self.abbreviations]
-
-            # Add current interval only if it does not end with abbreviation
-            if all(is_not_abbreviation):
-                sentences.extend(re.split(regex_pattern, curr_str))
-                last_end = appearance.end()
-
-        return sentences
+        return filter(lambda x: len(x) != 0, re.split(regex_pattern, content))
 
     @staticmethod
     def is_title(paragraph: str):
@@ -279,6 +284,13 @@ def cos_distance(model: KeyedVectors, pair: Tuple[str, str]) -> float:
     return model.similarity(*pair)
 
 
+def get_vector(model: KeyedVectors, word: Token):
+    try:
+        return model[word.word.strip().lower()]
+    except KeyError:
+        return np.zeros(VECTOR_DIMENSION)
+
+
 def word_similarities(model, output):
     # Word Pairs
     pairs = word_pairs()
@@ -315,9 +327,9 @@ def random_weights(word: Token) -> float:
 
 
 def vectors_average(words: List[Token], weight_func: Callable, model: KeyedVectors) -> np.ndarray:
-    result = np.zeros(50)
+    result = np.zeros(VECTOR_DIMENSION)
     for token in words:
-        result += weight_func(token) * model[token.word.lower().strip()]
+        result += weight_func(token) * get_vector(model, token)
     return result / len(words)
 
 
@@ -325,14 +337,14 @@ def format_tweets(tweets, model: KeyedVectors):
     tweets_corpus = Corpus()
     tweets_corpus.add_tweets_file_to_corpus(tweets)
 
-    graph_points = list()
     for weight_func in [arithmetic_average, random_weights]:
         pca = PCA(n_components=2)
         embedded_vectors = np.array([tweet.tweet_vector(model, weight_func) for tweet in tweets_corpus.tweets])
-        graph_points += [pca.fit_transform(embedded_vectors)]
+        graph_points = pca.fit_transform(embedded_vectors)
 
-        plt.plot(graph_points[:, 0], graph_points[:, 1])
-    plt.show()
+        plt.title(weight_func.__name__)
+        plt.scatter(graph_points[:, 0], graph_points[:, 1])
+        plt.show()
 
 
 def format_output(model, output):
