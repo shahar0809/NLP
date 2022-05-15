@@ -3,8 +3,10 @@ from collections import Counter, deque
 from os import listdir, path
 from sys import argv
 from typing import List, Tuple, Callable
-from xml import etree
 from random import uniform, choices
+from lxml import etree
+import matplotlib.patches as mpatches
+from string import punctuation
 
 from numpy import log2
 from sklearn.decomposition import PCA
@@ -13,6 +15,7 @@ import numpy as np
 from gensim.models import KeyedVectors
 from gensim.scripts.glove2word2vec import glove2word2vec
 import matplotlib.pyplot as plt
+from scipy import spatial
 
 VECTOR_DIMENSION = 50
 
@@ -57,9 +60,12 @@ class Sentence:
 
     def get_token_index(self, word: str):
         for token_idx, token in enumerate(self.tokens):
-            if token.word == word.strip().lower():
+            if token.word.strip().lower() == word.strip().lower():
                 return token_idx
         return -1
+
+    def __len__(self):
+        return len(self.tokens)
 
 
 class Tweet:
@@ -67,16 +73,26 @@ class Tweet:
         self.idx = idx
         self.sentences = list()
         self.category = category
+        self.all_words = list()
 
     def set_sentences(self, sentences: List[Sentence]):
         self.sentences = sentences
 
+        for sentence in sentences:
+            self.all_words.extend(sentence.tokens)
+
     def tweet_vector(self, model: KeyedVectors, weight_func: Callable) -> np.ndarray:
-        tweet_vector = np.zeros(VECTOR_DIMENSION)
+        all_tokens = list()
         for sentence in self.sentences:
-            sentence.word_vector = vectors_average(sentence.tokens, weight_func, model)
-            tweet_vector += sentence.word_vector
-        return tweet_vector / len(self.sentences)
+            all_tokens.extend(sentence.tokens)
+
+        tokens = list()
+        for token in all_tokens:
+            if token.word not in punctuation:
+                tokens.append(token)
+
+        tweet_vector = vectors_average(tokens, weight_func, model, self)
+        return tweet_vector
 
 
 class Corpus:
@@ -94,7 +110,6 @@ class Corpus:
         if sentences is None:
             self.sentences = list()
         self.files = list()
-        self.max_sentence_length = 0
 
     def __len__(self) -> int:
         return sum(len(sentence.tokens) for sentence in self.sentences)
@@ -124,11 +139,10 @@ class Corpus:
         # xml_file = BeautifulSoup(xml_file, "lxml")
 
         xml_file = etree.parse(xml_file)
-        authors = self.get_authors(xml_file)
 
         # sentences = xml_file.findAll("s", recursive=True)
         for sentence in xml_file.iter("s"):
-            curr_sentence = Sentence(sentence.get("n"), authors)
+            curr_sentence = Sentence(sentence.get("n"))
             for word in list(sentence):
                 curr_token = None
                 if word.tag == "w":
@@ -148,11 +162,9 @@ class Corpus:
                             curr_token = Token(word=sub_word.text, is_punctuation=True,
                                                c5=sub_word.get("c5"))
                 if curr_token is not None:
-                    self.add_token(curr_sentence, curr_token)
-
+                    curr_sentence.add_token(curr_token)
             if len(curr_sentence.tokens) != 0:
                 self.sentences.append(curr_sentence)
-        self.max_sentence_length = max(self.max_sentence_length, max(map(len, self.sentences)))
 
     def add_text_file_to_corpus(self, file_name: str) -> None:
         """
@@ -284,7 +296,7 @@ class NGram:
         self.prev_tokens = tokens[:len(tokens) - 1]
         self.token = tokens[-1]
 
-        self.ngram = ' '.join(token.word.strip() for token in tokens)
+        self.ngram = ' '.join(token.word.lower().strip() for token in tokens)
 
     def __str__(self):
         return self.ngram
@@ -311,13 +323,13 @@ class NGramModel:
                 self.add_to_vocabulary(NGram([token]))
 
     def add_to_vocabulary(self, ngram: NGram):
-        self.vocabulary[ngram.__str__().strip()] += 1
+        self.vocabulary[ngram.__str__().strip().lower()] += 1
 
     def add_ngram(self, ngram: NGram):
-        self.ngrams[ngram.__str__().strip()] += 1
+        self.ngrams[ngram.__str__().strip().lower()] += 1
 
     def add_context(self, context: list):
-        self.contexts[self.concat_ngram(context).strip()] += 1
+        self.contexts[self.concat_ngram(context).lower().strip()] += 1
 
     def build_ngrams(self):
         for sentence in self.corpus.sentences:
@@ -370,15 +382,18 @@ class NGramModel:
         :return: count of appearances
         """
         if len(phrases) == self.n:
-            return self.ngrams[self.concat_ngram(phrases).strip()]
+            return self.ngrams[self.concat_ngram(phrases).strip().lower()]
         elif len(phrases) == self.n - 1:
-            return self.contexts[self.concat_ngram(phrases).strip()]
+            return self.contexts[self.concat_ngram(phrases).strip().lower()]
+        elif len(phrases) == 1:
+            return self.vocabulary[Token(phrases[0].word.strip().lower())]
         else:
+            print(len(phrases))
             raise Exception("Invalid length at ngram")
 
     @staticmethod
     def concat_ngram(ngram: list):
-        return ' '.join(token.word.strip() for token in ngram)
+        return ' '.join(token.word.strip().lower() for token in ngram)
 
     @staticmethod
     def n_wise(it, n: int):
@@ -393,32 +408,6 @@ class NGramModel:
         for idx in range(1, self.n + 1):
             weights.append(idx / divisor)
         return weights
-
-    def random_sentence_length(self):
-        return int(uniform(1, self.corpus.max_sentence_length))
-
-    def generate_next_word(self, sentence: Sentence):
-        context = sentence.tokens[-(self.n - 1):]
-        population = list()
-        probabilities = list()
-
-        for token in self.vocabulary:
-            population.append(token)
-            probabilities.append(self.no_smoothing_probability(Token(word=token), context))
-
-        return Token(choices(population, probabilities)[0])
-
-    def generate_random_sentence(self):
-        sentence_length = self.random_sentence_length()
-        sentence = Sentence(tokens=[Token(word="<b>")])
-
-        for idx in range(sentence_length):
-            next_token = self.generate_next_word(sentence)
-            sentence.add_token(next_token)
-
-            if next_token.word == "<e>":
-                return sentence
-        return sentence
 
 
 class UnigramModel(NGramModel):
@@ -475,19 +464,6 @@ class TrigramModel(NGramModel):
         return weights[0] * self.unigram.get_token_probability(token, list()) + \
                weights[1] * self.bigram.no_smoothing_probability(token, phrases[-1:]) + \
                weights[2] * self.no_smoothing_probability(token, phrases[-2:])
-
-    def generate_random_sentence(self):
-        sentence_length = self.random_sentence_length()
-        sentence = Sentence(tokens=[Token(word="<b>")])
-        sentence.add_token(self.bigram.generate_next_word(sentence))
-
-        for idx in range(sentence_length - 1):
-            next_token = self.generate_next_word(sentence)
-            sentence.add_token(next_token)
-
-            if next_token.word == "<e>":
-                return sentence
-        return sentence
 
 
 def convert_to_word2vec(text_filename: str, kv_filename: str) -> None:
@@ -572,14 +548,12 @@ def word_similarities(model, output):
 
 
 def lyrics_to_replace() -> List[str]:
-    return ["baby", "doing", "doing", "at", "you", "got", "plans", "say", "trap", "sipping", "sip", "robe", "drip",
-            "good", "look", "alone", "woo", "house", "house", "pool", "warm", "shaved", "newborn", "dancing", "east",
-            "mansion", "games", "say", "arms", "door", "door", "door", "door", "way", "tonight", "tell", "sweet",
-            "sweet", "tight", "tight", "bite", "ah", "unless", "unless", "smoke", "smoke", "got", "haze", "hungry",
-            "got", "woo", "keep", "waiting", "making", "shamone", "kissing", "bathtub", "jump", "games", "say", "if",
-            "if", "tryna", "arms", "door", "door", "door", "door", "way", "tonight", "tell", "girl", "la", "need", "la",
-            "see", "la", "give", "ah", "door", "door", "door", "door", "hoping", "feel", "tonight", "coming", "woo",
-            "woo", "la", "la", "coming", "for", "waiting", "adore", "la", "la"]
+    return ["baby", "doing", "at", "got", "say", "robe", "alone", "clean", "newborn", "should", "east", "mansion",
+            "playing", "say", "arms", "door", "door", "door", "door", "feel", "tonight", "tell", "sweet", "like",
+            "got", "hungry",
+            "keep", "love", "kissing", "bathtub", "bubbling", "playing", "say", "these", "door", "door", "door", "door",
+            "feel", "tonight", "tell", "need", "see", "give", "ah", "door", "door", "door", "feel", "tonight", "tell",
+            "tell", "tell", "woo", "woo", "la", "tell", "just", "adore", "waiting", "tell", "waiting", "adore", "la"]
 
 
 def format_new_song(song_filename: str, file_directory: str, model: KeyedVectors, output,
@@ -587,87 +561,154 @@ def format_new_song(song_filename: str, file_directory: str, model: KeyedVectors
     song_corpus = Corpus()
     song_corpus.add_song_file_to_corpus(song_filename)
 
+    print("Adding XML files to corpus...")
     general_corpus = Corpus()
-    for file in listdir(file_directory):
+    folder_size = len(listdir(file_directory))
+    for file_idx, file in enumerate(listdir(file_directory)):
+        print("file ({}/{})".format(file_idx, folder_size))
         general_corpus.add_xml_file_to_corpus(path.join(file_directory, file))
 
+        if file_idx == 500:
+            break
+
+    print("Creating a chart-breaking song...")
+    trigram_model = TrigramModel(general_corpus, smoothing_type="Linear interpolation")
     for sentence_idx, sentence in enumerate(song_corpus.sentences):
         old_word = old_words[sentence_idx]
         top_similar_words = model.most_similar(old_word, topn=10)
 
         token_idx = sentence.get_token_index(old_word)
         # Finding word with most trigrams count
-        most_similar_word = get_most_similar_word(old_word, sentence, top_similar_words, general_corpus)
+        most_similar_word = get_most_similar_word(old_word, sentence, top_similar_words, trigram_model)
         # Replace with most similar word
         sentence.tokens[token_idx] = most_similar_word
 
-    output.write("=== New Hit ===\n\n\n")
+    output.write("\n\n=== New Hit ===\n\n\n")
     output.write(str(song_corpus))
 
 
 def get_most_similar_word(old_word: str, sentence: Sentence, similar_words: List[Tuple[str, float]],
-                          corpus: Corpus) -> str:
-    ngram_counter = Counter()
-    trigram_model = TrigramModel(corpus, smoothing_type="Linear interpolation")
-
+                          trigram_model) -> str:
     token_idx = sentence.get_token_index(old_word)
-    for similar_word, vector in similar_words:
-        # words = list()
-        # trigrams for sentences with at least three tokens
-        if len(sentence.tokens) >= 3:
-            if token_idx == len(sentence.tokens) - 1:
-                words = [sentence.tokens[token_idx - 2], sentence.tokens[token_idx - 1], Token(similar_word)]
-            elif token_idx == 0:
-                words = [Token(similar_word), sentence.tokens[token_idx + 1], sentence.tokens[token_idx + 2]]
-            else:
-                words = [sentence.tokens[token_idx - 1], similar_word, sentence.tokens[token_idx + 1]]
-        # unigrams for sentences with only one token
-        elif len(sentence.tokens) == 1:
-            words = [corpus.tokens_counter[similar_word]]
-        # bigrams for sentences with only two token
+
+    # TODO: SEPARATE TO FUNCTIONS
+    if len(sentence.tokens) >= 3:
+        most_similar_word, count = count_ngrams(count_trigrams, similar_words, trigram_model, sentence, token_idx)
+        if count != 0:
+            return most_similar_word
         else:
-            if token_idx == 0:
-                words = [Token(similar_word), sentence.tokens[token_idx + 1]]
+            most_similar_word, count = count_ngrams(count_bigrams, similar_words, trigram_model, sentence, token_idx)
+            if count != 0:
+                return most_similar_word
             else:
-                words = [sentence.tokens[token_idx - 1], Token(similar_word)]
-        ngram_counter[similar_word] = trigram_model.get_count(words)
+                return similar_words[0][0]
+    elif len(sentence.tokens) == 2:
+        most_similar_word, count = count_ngrams(count_bigrams, similar_words, trigram_model, sentence, token_idx)
+        if count != 0:
+            return most_similar_word
+        else:
+            return similar_words[0][0]
+    else:
+        return similar_words[0][0]
 
-    # Return the similar words with the most ngrams counts
-    return max(ngram_counter, key=ngram_counter.get)
+
+def count_ngrams(counting_func: Callable, similar_words, trigram_model: TrigramModel, sentence: Sentence,
+                 token_idx: int) -> Tuple[str, int]:
+    max_count = 0
+    max_word = None
+
+    for similar_word, vector in similar_words:
+        words = counting_func(sentence, token_idx, similar_word)
+        count = trigram_model.get_count(words)
+
+        if count > max_count:
+            max_word = similar_word
+            max_count = count
+    return max_word, max_count
 
 
-def arithmetic_average(word: Token) -> float:
+def count_trigrams(sentence: Sentence, token_idx: int, similar_word: str) -> List[Token]:
+    if token_idx == len(sentence.tokens) - 1:
+        words = [sentence.tokens[token_idx - 2], sentence.tokens[token_idx - 1], Token(similar_word)]
+    elif token_idx == 0:
+        words = [Token(similar_word), sentence.tokens[token_idx + 1], sentence.tokens[token_idx + 2]]
+    else:
+        words = [sentence.tokens[token_idx - 1], Token(similar_word), sentence.tokens[token_idx + 1]]
+    return words
+
+
+def count_bigrams(sentence: Sentence, token_idx: int, similar_word: str) -> List[Token]:
+    if token_idx == len(sentence.tokens) - 1:
+        words = [sentence.tokens[token_idx - 1], Token(similar_word)]
+    else:
+        words = [Token(similar_word), sentence.tokens[token_idx + 1]]
+    return words
+
+
+def count_unigrams(sentence: Sentence, token_idx: int, similar_word: str) -> List[Token]:
+    return [Token(similar_word)]
+
+
+def arithmetic_average(word: Token, all_words: List[Token], model, tweet: Tweet) -> float:
     return 1
 
 
-def random_weights(word: Token) -> float:
+def random_weights(word: Token, all_words: List[Token], model, tweet: Tweet) -> float:
     return uniform(0, 9.999999)
 
 
-def vectors_average(words: List[Token], weight_func: Callable, model: KeyedVectors) -> np.ndarray:
+def frequency_weights(word: Token, all_words: List[Token], model, tweet: Tweet) -> float:
+    counter = Counter([token.word.lower().strip() for token in all_words])
+    try:
+        weight = model.similarity(tweet.category.lower().strip(), word.word.lower().strip())
+        return weight
+    except KeyError:
+        try:
+            return model.similarity("pandemic", word.word.lower().strip())
+        except KeyError:
+            return 0
+
+
+def vectors_average(words: List[Token], weight_func: Callable, model: KeyedVectors,
+                    tweet: Tweet) -> np.ndarray:
     result = np.zeros(VECTOR_DIMENSION)
     for token in words:
-        result += weight_func(token) * get_vector(model, token)
+        result += weight_func(token, words, model, tweet) * get_vector(model, token)
     return result / len(words)
 
 
 def format_tweets(tweets, model: KeyedVectors):
+    print("Creating tweets map...")
     tweets_corpus = Corpus()
     tweets_corpus.add_tweets_file_to_corpus(tweets)
 
-    for weight_func in [arithmetic_average, random_weights]:
+    for weight_func in [arithmetic_average, random_weights, frequency_weights]:
         pca = PCA(n_components=2)
         embedded_vectors = np.array([tweet.tweet_vector(model, weight_func) for tweet in tweets_corpus.tweets])
         graph_points = pca.fit_transform(embedded_vectors)
 
-        plt.title(weight_func.__name__)
-        plt.scatter(graph_points[:, 0], graph_points[:, 1])
-        plt.show()
+        colors = {"Covid": "red", "Olympics": "blue", "Pets": "green"}
+        categories = [tweet.category for tweet in tweets_corpus.tweets]
+        plt.rcParams.update({'font.size': 8})
+
+        fig, ax = plt.subplots()
+        ax.scatter(graph_points[:, 0], graph_points[:, 1], c=list(map(lambda x: colors[x], categories)))
+        fig.suptitle(weight_func.__name__)
+
+        for idx, tweet in enumerate(tweets_corpus.tweets):
+            ax.annotate("{}#{}".format(tweet.category, tweet.idx), (graph_points[:, 0][idx], graph_points[:, 1][idx]))
+
+        red_patch = mpatches.Patch(color='red', label='Covid')
+        blue_patch = mpatches.Patch(color='blue', label='Olympics')
+        green_patch = mpatches.Patch(color='green', label='Pets')
+        fig.legend(handles=[red_patch, blue_patch, green_patch])
+
+    plt.show()
 
 
 def format_output(model, output):
+    print("Calculating word similarities and analogies...")
     word_similarities(model, output)
-    output.close()
 
 
 if __name__ == "__main__":
@@ -684,6 +725,8 @@ if __name__ == "__main__":
     format_output(pre_trained_model, output_file)
     format_new_song(lyrics_file, xml_dir, pre_trained_model, output_file, lyrics_to_replace())
     format_tweets(tweets_file, pre_trained_model)
+
+    output_file.close()
 
     corpus = Corpus()
     # for file in listdir(xml_dir):

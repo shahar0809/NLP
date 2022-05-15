@@ -75,6 +75,7 @@ class Sentence:
         if tokens is None:
             self.tokens = list()
 
+
     @staticmethod
     def filter_genders(genders: list) -> list:
         updated_genders = list()
