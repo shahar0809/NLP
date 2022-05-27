@@ -186,12 +186,10 @@ class Corpus:
         """
         self.files.append(file_name)
         xml_file = open(file_name, "r", encoding="utf-8")
-        # xml_file = BeautifulSoup(xml_file, "lxml")
 
         xml_file = etree.parse(xml_file)
         authors = self.get_authors(xml_file)
 
-        # sentences = xml_file.findAll("s", recursive=True)
         for sentence in xml_file.iter("s"):
             curr_sentence = Sentence(sentence.get("n"), authors)
             for word in list(sentence):
