@@ -80,10 +80,6 @@ class Parser:
         self.grammar.generate_tag_ids()
         self.v_size = self.grammar.get_amount_of_tags()
 
-        # Empty chart of size NxN. Each cell contains an empty list
-        # self.chart = np.array([], shape=(self.n, self.n), dtype=object)
-        # self.probabilities = np.zeros(shape=(self.n, self.n))
-        self.chart = np.zeros((self.n, self.n + 1, self.v_size))
         self.backtrack = np.empty(shape=(self.n, self.n + 1, self.v_size), dtype=Node)
         self.backtrack[:, :, :] = np.vectorize(Node)(
             np.arange(self.v_size * self.n * (self.n + 1)).reshape((self.n, self.n + 1, self.v_size)))
@@ -93,7 +89,6 @@ class Parser:
         for j in range(1, self.n + 1):
             # Initializing chart for each word
             for rule in self.grammar.search_rule([self.sentence[j - 1]]):
-                self.chart[j - 1][j][unique_tags[rule.head]] = rule.probability
                 self.backtrack[j - 1][j][unique_tags[rule.head]] = Node(rule.head,
                                                                         probability=rule.probability,
                                                                         child1=Node(self.sentence[j - 1]))
@@ -102,24 +97,22 @@ class Parser:
             for i in range(j - 2, -1, -1):
                 for k in range(i + 1, j):
                     for B in unique_tags.keys():
-                        if self.chart[i][k][unique_tags[B]] > 0:
+                        if self.backtrack[i][k][unique_tags[B]].probability > 0:
                             for C in unique_tags.keys():
-                                if self.chart[k][j][unique_tags[C]] > 0:
+                                if self.backtrack[k][j][unique_tags[C]].probability > 0:
                                     for rule_A in self.grammar.search_rule([B, C]):
                                         A = rule_A.head
-                                        p = rule_A.probability * self.chart[i][k][unique_tags[B]] * self.chart[k][j][
-                                            unique_tags[C]]
-                                        # p = np.log(p)
-                                        self.chart[i][j][unique_tags[A]] = max(p,
-                                                                               self.chart[i][j][
-                                                                                   unique_tags[A]])
-                                        self.backtrack[i][j][unique_tags[A]] = Node(A, max(p, self.chart[i][j][
-                                            unique_tags[A]]), self.backtrack[i][k][unique_tags[B]],
+                                        p = rule_A.probability * self.backtrack[i][k][unique_tags[B]].probability * \
+                                            self.backtrack[k][j][
+                                                unique_tags[C]].probability
+
+                                        self.backtrack[i][j][unique_tags[A]] = Node(A, max(p, self.backtrack[i][j][
+                                            unique_tags[A]].probability), self.backtrack[i][k][unique_tags[B]],
                                                                                     self.backtrack[k][j][
                                                                                         unique_tags[C]])
 
     def is_in_grammar(self):
-        return self.chart[0][self.n][self.grammar.unique_tags["S"]] > 0
+        return self.backtrack[0][self.n][self.grammar.unique_tags["S"]].probability > 0
 
     def draw_parsing_tree(self, output_file):
         output_file.write("Sentence: {}\n".format(" ".join(self.sentence)))
